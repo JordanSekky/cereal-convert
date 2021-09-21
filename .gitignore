@@ -1,1 +1,3 @@
 /target
+aws_credentials.txt
+.env
