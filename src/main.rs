@@ -1,31 +1,50 @@
-mod configuration;
-use configuration::Configuration;
 mod aggregator;
 mod calibre;
 mod chapter;
+mod handlers;
 mod royalroad;
 mod smtp;
+mod storage;
 #[macro_use]
 extern crate simple_error;
+extern crate pretty_env_logger;
+#[macro_use]
+extern crate log;
 use std::env;
+use std::sync::Arc;
+
+use tokio::signal;
+use tokio::sync::Mutex;
+use ttl_cache::TtlCache;
+use warp::Filter;
+
+use crate::handlers::{royalroad_handler, ConvertRequestBody, ConvertRequestResponse};
 
 #[tokio::main]
 async fn main() {
-    println!("Hello, world! :D");
-    let config = Configuration::from_config_file();
-    println!("{:?}", config);
-    let royalroad_books = royalroad::download(&config.royalroad).await.unwrap();
-    let aggregate_royalroad_books = aggregator::aggregate(&royalroad_books);
-    println!("{:?}", aggregate_royalroad_books);
-    for book in aggregate_royalroad_books {
-        let path = calibre::convert_to_mobi(&book)
-            .expect(&format!("Failed to convert book {} to mobi.", book.title));
-        println!("{:?}", path);
-        smtp::send_file_smtp(
-            &path,
-            &env::var("CEREAL_DESTINATION_ADDRESS").unwrap(),
-            &book,
-        )
-        .await;
+    if env::var_os("RUST_LOG").is_none() {
+        // Set `RUST_LOG=todos=debug` to see debug logs,
+        // this only shows access logs.
+        env::set_var("RUST_LOG", "info,royalroad=info");
     }
+    pretty_env_logger::init();
+
+    let storage_location_cache: Arc<Mutex<TtlCache<ConvertRequestBody, ConvertRequestResponse>>> =
+        Arc::new(Mutex::new(TtlCache::new(1000)));
+
+    let royalroad = warp::post()
+        .and(warp::path("royalroad"))
+        .and(warp::post())
+        .and(warp::body::content_length_limit(1024 * 16))
+        .and(warp::any().map(move || storage_location_cache.clone()))
+        .and(warp::body::json())
+        .and_then(royalroad_handler)
+        .with(warp::log("royalroad"));
+
+    let server = warp::serve(royalroad).run(([0, 0, 0, 0], 80));
+    let cancel = signal::ctrl_c();
+    tokio::select! {
+      _ = server => 0,
+      _ = cancel => { println!("Received exit signal, exiting."); 255}
+    };
 }

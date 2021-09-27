@@ -1,10 +1,6 @@
 use crate::chapter::{AggregateBook, Book};
 
-pub fn aggregate(books: &Vec<Book>) -> Vec<AggregateBook> {
-    books.iter().map(|book| get_book_html(book)).collect()
-}
-
-fn get_book_html(book: &Book) -> AggregateBook {
+pub fn get_book_html(book: &Book) -> AggregateBook {
     let mut html = String::new();
     let mut chapter_titles = vec![];
     html += &format!("<h1>{}</h1>", book.title);

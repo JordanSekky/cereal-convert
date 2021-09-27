@@ -10,7 +10,7 @@ COPY ./Cargo.toml ./Cargo.toml
 RUN cargo build --release
 RUN rm src/*.rs
 
-ADD . ./
+ADD ./src ./src
 
 RUN rm ./target/x86_64-unknown-linux-musl/release/deps/${APP_NAME}*
 RUN cargo build --release
@@ -32,7 +32,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 
 COPY --from=builder /home/rust/${APP_NAME}/target/x86_64-unknown-linux-musl/release/${APP_NAME} ${APP}/${APP_NAME}
-COPY --from=builder /home/rust/${APP_NAME}/config.toml ${APP}/config.toml
 
 RUN chown -R $APP_USER:$APP_USER ${APP}
 
