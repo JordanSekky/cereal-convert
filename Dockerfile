@@ -19,7 +19,7 @@ RUN cargo build --release
 FROM ubuntu:impish
 
 ARG APP=/usr/src/app
-ARG APP_NAME=cereal
+ARG APP_NAME=cereal-convert
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV APP_USER=appuser
@@ -38,4 +38,6 @@ RUN chown -R $APP_USER:$APP_USER ${APP}
 USER $APP_USER
 WORKDIR ${APP}
 
-CMD ["./cereal"]
+EXPOSE 3000
+
+CMD ["./cereal-convert"]
