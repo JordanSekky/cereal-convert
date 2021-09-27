@@ -2,6 +2,7 @@ use rand::Rng;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use tracing::info;
 
 use crate::chapter::AggregateBook;
 use std::error::Error;
@@ -21,8 +22,8 @@ pub fn convert_to_mobi(book: &AggregateBook) -> Result<PathBuf, Box<dyn Error>> 
         .arg("-c")
         .arg(format!("from calibre.ebooks.covers import *; open('/tmp/cover.jpg', 'wb').write(create_cover('{}', ['{}']))", file_title, book.author))
         .output()?;
-    info!("{}", String::from_utf8(cover_gen_output.stdout)?);
-    info!("{}", String::from_utf8(cover_gen_output.stderr)?);
+    info!("{}", String::from_utf8(cover_gen_output.stdout.clone())?);
+    info!("{}", String::from_utf8(cover_gen_output.stderr.clone())?);
     info!("{}", cover_gen_output.status);
     if !cover_gen_output.status.success() {
         bail!("Cover generation failed to complete successsfully.");
@@ -41,8 +42,8 @@ pub fn convert_to_mobi(book: &AggregateBook) -> Result<PathBuf, Box<dyn Error>> 
         .arg("--output-profile")
         .arg("kindle_oasis")
         .output()?;
-    info!("{}", String::from_utf8(output.stdout)?);
-    info!("{}", String::from_utf8(output.stderr)?);
+    info!("{}", String::from_utf8(output.stdout.clone())?);
+    info!("{}", String::from_utf8(output.stderr.clone())?);
     info!("{}", output.status);
     if !output.status.success() {
         bail!("MOBI generation failed to complete successsfully.");

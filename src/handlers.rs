@@ -11,9 +11,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use storage::StorageLocation;
 use tokio::sync::Mutex;
+use tracing::{info, info_span, span, Instrument, Level};
 use ttl_cache::TtlCache;
+use uuid::Uuid;
 
-#[derive(Deserialize, Serialize, PartialEq, Eq, Hash, Clone)]
+#[derive(Deserialize, Serialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ConvertRequestBody {
     chapters: BTreeSet<u32>,
 }
@@ -33,6 +35,15 @@ impl From<StorageLocation> for ConvertRequestResponse {
     }
 }
 
+#[tracing::instrument(
+    name = "Caching a new RoyalRoad set of chapters",
+    err,
+    level = "warn"
+    skip(db),
+    fields(
+        request_id = %Uuid::new_v4(),
+    )
+)]
 pub async fn royalroad_handler(
     db: Arc<Mutex<TtlCache<ConvertRequestBody, ConvertRequestResponse>>>,
     body: ConvertRequestBody,
@@ -54,20 +65,38 @@ async fn convert_and_store_book(
     body: ConvertRequestBody,
 ) -> Result<ConvertRequestResponse, Box<dyn Error>> {
     info!("Received chapters: {:?}", body.chapters);
-    let mut db_lock = db.as_ref().lock().await;
+    let mut db_lock = db
+        .as_ref()
+        .lock()
+        .instrument(info_span!("Waiting for db lock."))
+        .await;
     if let Some(response) = db_lock.get(&body) {
-        info!("Cache hit! Returning previous response.");
         return Ok(response.clone());
     }
     info!("Cache miss! Fetching chapters from royalroad.");
-    let book = royalroad::download_book(&body.chapters).await?;
-    let aggregate = get_book_html(&book);
-    info!("Converting chapters to mobi.");
-    let converted_book_path = calibre::convert_to_mobi(&aggregate)?;
+    let book = royalroad::download_book(&body.chapters)
+        .instrument(info_span!("Fetching chapters from royalroad."))
+        .await?;
+    let aggregate = {
+        let span = info_span!("Aggregating chapter contents.");
+        let _guard = span.enter();
+        get_book_html(&book)
+    };
+
+    let converted_book_path = {
+        let span = &info_span!("Converting chapter contents to mobi.");
+        let _guard = span.enter();
+        calibre::convert_to_mobi(&aggregate)?
+    };
     info!("Uploading mobi file to cloud storage.");
-    let mut book_bytes = Vec::new();
-    File::open(converted_book_path)?.read_to_end(&mut book_bytes)?;
-    let response: ConvertRequestResponse = storage::store_book(book_bytes).await?.into();
+    let response: ConvertRequestResponse = {
+        let mut book_bytes = Vec::new();
+        File::open(converted_book_path)?.read_to_end(&mut book_bytes)?;
+        storage::store_book(book_bytes)
+            .instrument(info_span!("Storing mobi to cloud storage."))
+            .await?
+            .into()
+    };
     db_lock.insert(body, response.clone(), Duration::from_secs(60 * 60 * 24));
     info!("Returning new response: {:?}", response);
     Ok(response)

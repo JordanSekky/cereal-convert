@@ -4,10 +4,7 @@ extern crate reqwest;
 use crate::chapter::Book;
 use crate::chapter::Chapter;
 
-use feed_rs::parser;
 use futures::future::try_join_all;
-use lazy_static::lazy_static;
-use regex::Regex;
 use scraper::{Html, Selector};
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -40,30 +37,6 @@ pub async fn download_book(chapter_ids: &BTreeSet<u32>) -> Result<Book, Box<dyn 
         author: author,
         chapters: chapters,
     })
-}
-
-async fn get_chapter_ids(book_id: &u32) -> Result<Vec<u32>, Box<dyn Error>> {
-    let res = reqwest::get(format!("https://www.royalroad.com/syndication/{}", book_id)).await?;
-    let feed = res.text().await?;
-    let feed = parser::parse(feed.as_bytes())?;
-    feed.entries
-        .into_iter()
-        .flat_map(|entry| entry.links)
-        .map(|link| extract_chapter_id_from_link(&link.href))
-        .filter(|chapter_id| !chapter_id.is_err())
-        .rev()
-        .collect()
-}
-
-fn extract_chapter_id_from_link(link: &str) -> Result<u32, Box<dyn Error>> {
-    lazy_static! {
-        static ref RE: Regex =
-            Regex::new(r"https://www.royalroad.com/fiction/chapter/(\d+)").unwrap();
-    }
-    for cap in RE.captures_iter(link) {
-        return Ok(cap[1].parse()?);
-    }
-    bail!("No chapter id found in link.")
 }
 
 struct ChapterWithMeta {

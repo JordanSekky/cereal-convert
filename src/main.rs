@@ -2,19 +2,18 @@ mod aggregator;
 mod calibre;
 mod chapter;
 mod handlers;
+mod honeycomb;
 mod royalroad;
 mod smtp;
 mod storage;
 #[macro_use]
 extern crate simple_error;
-extern crate pretty_env_logger;
-#[macro_use]
-extern crate log;
-use std::env;
 use std::sync::Arc;
 
 use tokio::signal;
 use tokio::sync::Mutex;
+use tracing::metadata::LevelFilter;
+use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, Registry};
 use ttl_cache::TtlCache;
 use warp::Filter;
 
@@ -22,12 +21,11 @@ use crate::handlers::{royalroad_handler, ConvertRequestBody, ConvertRequestRespo
 
 #[tokio::main]
 async fn main() {
-    if env::var_os("RUST_LOG").is_none() {
-        // Set `RUST_LOG=todos=debug` to see debug logs,
-        // this only shows access logs.
-        env::set_var("RUST_LOG", "info,royalroad=info");
-    }
-    pretty_env_logger::init();
+    let subscriber = Registry::default() // provide underlying span data store
+        .with(LevelFilter::INFO) // filter out low-level debug tracing (eg tokio executor)
+        .with(tracing_opentelemetry::layer().with_tracer(honeycomb::get_honeycomb_tracer())) // publish to honeycomb backend
+        .with(tracing_subscriber::fmt::Layer::default()); // log to stdout
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 
     let storage_location_cache: Arc<Mutex<TtlCache<ConvertRequestBody, ConvertRequestResponse>>> =
         Arc::new(Mutex::new(TtlCache::new(1000)));
@@ -39,12 +37,12 @@ async fn main() {
         .and(warp::any().map(move || storage_location_cache.clone()))
         .and(warp::body::json())
         .and_then(royalroad_handler)
-        .with(warp::log("royalroad"));
+        .with(warp::trace::request());
 
     let server = warp::serve(royalroad).run(([0, 0, 0, 0], 3000));
     let cancel = signal::ctrl_c();
     tokio::select! {
-      _ = server => 0,
-      _ = cancel => { println!("Received exit signal, exiting."); 255}
+    _ = server => 0,
+    _ = cancel => { println!("Received exit signal, exiting."); 255}
     };
 }

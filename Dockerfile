@@ -1,6 +1,6 @@
 FROM ekidd/rust-musl-builder:stable as builder
 
-ARG APP_NAME=cereal
+ARG APP_NAME=cereal-convert
 
 WORKDIR /home/rust/
 RUN cargo new --bin ${APP_NAME} 
@@ -12,7 +12,7 @@ RUN rm src/*.rs
 
 ADD ./src ./src
 
-RUN rm ./target/x86_64-unknown-linux-musl/release/deps/${APP_NAME}*
+RUN rm ./target/x86_64-unknown-linux-musl/release/deps/cereal*
 RUN cargo build --release
 
 

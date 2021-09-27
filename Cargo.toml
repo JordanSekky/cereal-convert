@@ -7,11 +7,7 @@ edition = "2018"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-toml = { version = "0.5.8" }
-feed-rs = "0.6.1"
 reqwest = { version = "0.11.4" }
-regex = "1.5.4"
-lazy_static = "1.4.0"
 simple-error = "0.2.3"
 scraper = "0.12.0"
 futures = { version = "0.3.17" }
@@ -21,6 +17,11 @@ warp = "0.3"
 rusoto_core = "0.47.0"
 rusoto_s3 = "0.47.0"
 rand = "0.8.4"
-pretty_env_logger = "0.4.0"
-log = "0.4.14"
 ttl_cache = "0.5.1"
+tracing = { version = "0.1.28", features = ["log"] }
+tonic = { version = "0.5.2", features = ['tls-roots', 'tls'] }
+tracing-subscriber = "0.2.24"
+tracing-opentelemetry = "0.15.0"
+opentelemetry = "0.16.0"
+opentelemetry-otlp = { version = "0.9.0", features = ['tls'] }
+uuid = { version = "0.8", features = ['v4'] }
