@@ -17,7 +17,9 @@ use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, Registry};
 use ttl_cache::TtlCache;
 use warp::Filter;
 
-use crate::handlers::{royalroad_handler, ConvertRequestBody, ConvertRequestResponse};
+use crate::handlers::{
+    royalroad_handler, smtp_handler, ConvertRequestBody, ConvertRequestResponse, MailRequestBody,
+};
 
 #[tokio::main]
 async fn main() {
@@ -30,16 +32,27 @@ async fn main() {
     let storage_location_cache: Arc<Mutex<TtlCache<ConvertRequestBody, ConvertRequestResponse>>> =
         Arc::new(Mutex::new(TtlCache::new(1000)));
 
+    let book_bytes_cache: Arc<Mutex<TtlCache<MailRequestBody, Vec<u8>>>> =
+        Arc::new(Mutex::new(TtlCache::new(1000)));
+
     let royalroad = warp::post()
         .and(warp::path("royalroad"))
         .and(warp::post())
         .and(warp::body::content_length_limit(1024 * 16))
         .and(warp::any().map(move || storage_location_cache.clone()))
         .and(warp::body::json())
-        .and_then(royalroad_handler)
-        .with(warp::trace::request());
+        .and_then(royalroad_handler);
 
-    let server = warp::serve(royalroad).run(([0, 0, 0, 0], 3000));
+    let mail = warp::post()
+        .and(warp::path("mail"))
+        .and(warp::post())
+        .and(warp::body::content_length_limit(1024 * 16))
+        .and(warp::any().map(move || book_bytes_cache.clone()))
+        .and(warp::body::json())
+        .and_then(smtp_handler);
+
+    let server =
+        warp::serve(royalroad.or(mail).with(warp::trace::request())).run(([0, 0, 0, 0], 3000));
     let cancel = signal::ctrl_c();
     tokio::select! {
     _ = server => 0,

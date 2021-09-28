@@ -1,3 +1,6 @@
+use serde::Deserialize;
+use serde::Serialize;
+
 pub struct Chapter {
     pub body: String,
     pub title: String,
@@ -34,5 +37,22 @@ impl std::fmt::Debug for AggregateBook {
             .field("body_len_bytes", &self.body.len())
             .field("chapter_count", &self.chapter_titles.len())
             .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BookMeta {
+    pub title: String,
+    pub author: String,
+    pub chapter_titles: Vec<String>,
+}
+
+impl From<AggregateBook> for BookMeta {
+    fn from(book: AggregateBook) -> Self {
+        BookMeta {
+            title: book.title,
+            author: book.author,
+            chapter_titles: book.chapter_titles,
+        }
     }
 }

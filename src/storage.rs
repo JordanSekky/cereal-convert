@@ -1,8 +1,8 @@
-use std::error::Error;
+use std::{error::Error, io::Read};
 
 use rand::Rng;
 use rusoto_core::{credential::StaticProvider, HttpClient, Region};
-use rusoto_s3::{PutObjectRequest, S3Client, S3};
+use rusoto_s3::{GetObjectRequest, PutObjectRequest, S3Client, S3};
 use std::env;
 
 pub struct StorageLocation {
@@ -37,4 +37,32 @@ pub async fn store_book(mobi_bytes: Vec<u8>) -> Result<StorageLocation, Box<dyn 
     })
     .await?;
     Ok(StorageLocation { key, bucket })
+}
+
+pub async fn fetch_book(location: &StorageLocation) -> Result<Vec<u8>, Box<dyn Error>> {
+    let s3 = S3Client::new_with(
+        HttpClient::new().expect("failed to create request dispatcher"),
+        StaticProvider::new_minimal(
+            env::var("CEREAL_SPACES_KEY")?.to_string(),
+            env::var("CEREAL_SPACES_SECRET")?.to_string(),
+        ),
+        Region::Custom {
+            name: "SPACES".to_string(),
+            endpoint: env::var("CEREAL_SPACES_ENDPOINT")?.to_string(),
+        },
+    );
+    let response = s3
+        .get_object(GetObjectRequest {
+            bucket: location.bucket.clone(),
+            key: location.key.clone(),
+            ..Default::default()
+        })
+        .await?;
+    let mut bytes: Vec<u8> = Vec::new();
+    response
+        .body
+        .ok_or("File at book location had no body.")?
+        .into_blocking_read()
+        .read_to_end(&mut bytes)?;
+    Ok(bytes)
 }

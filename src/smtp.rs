@@ -1,28 +1,32 @@
-use crate::chapter::AggregateBook;
+use crate::chapter::BookMeta;
 use lettre::message::header::ContentType;
 use lettre::message::Attachment;
 use lettre::{transport::smtp::authentication::Credentials, Message, SmtpTransport, Transport};
 use std::env;
-use std::path::Path;
+use std::error::Error;
 
-pub async fn send_file_smtp(path: &Path, email: &str, book: &AggregateBook) {
+pub async fn send_file_smtp(
+    bytes: Vec<u8>,
+    email: &str,
+    book: &BookMeta,
+) -> Result<(), Box<dyn Error>> {
     let from = String::from("postmaster@cereal.works");
     let email_body = Message::builder()
-        .from(from.parse().unwrap())
-        .to(email.parse().unwrap())
+        .from(from.parse()?)
+        .to(email.parse()?)
         .subject(format!("A new chapter of {}.", &book.title))
-        .singlepart(Attachment::new(path.to_str().unwrap().to_owned()).body(
-            std::fs::read(path).unwrap(),
-            ContentType::parse("application/x-mobipocket-ebook").unwrap(),
-        ))
-        .unwrap();
-    let transport = SmtpTransport::relay(&env::var("CEREAL_SMTP_HOST").unwrap())
+        .singlepart(
+            Attachment::new(format!("{}.mobi", &book.title))
+                .body(bytes, ContentType::parse("application/x-mobipocket-ebook")?),
+        )?;
+    let transport = SmtpTransport::relay(&env::var("CEREAL_SMTP_HOST")?)
         .unwrap()
         .credentials(Credentials::new(
-            env::var("CEREAL_SMTP_USERNAME").unwrap(),
-            env::var("CEREAL_SMTP_PASSWORD").unwrap(),
+            env::var("CEREAL_SMTP_USERNAME")?,
+            env::var("CEREAL_SMTP_PASSWORD")?,
         ))
         .build();
 
-    transport.send(&email_body).unwrap();
+    transport.send(&email_body)?;
+    Ok(())
 }
