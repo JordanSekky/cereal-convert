@@ -18,8 +18,8 @@ use ttl_cache::TtlCache;
 use uuid::Uuid;
 
 #[derive(Serialize)]
-struct ErrorMessage {
-    message: String,
+pub struct ErrorMessage {
+    pub message: String,
 }
 
 impl ErrorMessage {
@@ -32,7 +32,7 @@ impl ErrorMessage {
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ConvertRequestBody {
-    chapters: BTreeSet<u32>,
+    chapters: BTreeSet<u64>,
 }
 
 #[derive(Serialize, Clone, Debug)]

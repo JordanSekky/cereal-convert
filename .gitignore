@@ -1,3 +1,5 @@
 /target
 aws_credentials.txt
 .env
+.envrc
+*.DS_Store

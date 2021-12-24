@@ -1,15 +1,116 @@
 extern crate futures;
 extern crate reqwest;
+extern crate url;
 
 use crate::chapter::Book;
 use crate::chapter::Chapter;
+use crate::models::BookKind;
+use crate::models::NewBook;
 
 use futures::future::try_join_all;
 use scraper::{Html, Selector};
 use std::collections::BTreeSet;
 use std::error::Error;
+use url::Url;
+use uuid::Uuid;
 
-pub async fn download_book(chapter_ids: &BTreeSet<u32>) -> Result<Book, Box<dyn Error>> {
+#[derive(Debug, PartialEq, Clone)]
+pub struct RoyalRoadBook {
+    pub title: String,
+    pub author: String,
+    pub royalroad_id: u64,
+}
+
+impl From<RoyalRoadBook> for NewBook {
+    fn from(b: RoyalRoadBook) -> Self {
+        return Self {
+            name: b.title,
+            author: b.author,
+            metadata: BookKind::RoyalRoad { id: b.royalroad_id },
+        };
+    }
+}
+
+impl RoyalRoadBook {
+    pub fn royalroad_book_id(request_url: &str) -> Result<u64, Box<dyn Error + Sync + Send>> {
+        let request_url = Url::parse(request_url)?;
+        let valid_hosts = vec!["www.royalroad.com", "royalroad.com"];
+        if request_url.host_str().is_none()
+            || !valid_hosts
+                .iter()
+                .any(|v| *v == request_url.host_str().unwrap())
+        {
+            bail!("Provided url is not a valid royalroad url.");
+        }
+        let path_segments = request_url.path_segments();
+        let mut path_segments = match path_segments {
+            None => bail!("Provided url is not a valid royalroad url."),
+            Some(segments) => segments,
+        };
+
+        let path_start = path_segments.next();
+        if path_start != Some("fiction") {
+            bail!("Provided url is not a valid royalroad url.");
+        }
+        let royalroad_id: Option<u64> = path_segments.next().and_then(|id| id.parse().ok());
+        if royalroad_id.is_none() {
+            bail!("Provided url is not a valid royalroad url.");
+        }
+        return Ok(royalroad_id.unwrap());
+    }
+
+    pub async fn from_book_id(book_id: u64) -> Result<RoyalRoadBook, Box<dyn Error + Sync + Send>> {
+        return fetch_book_meta(book_id).await;
+    }
+}
+
+#[tracing::instrument(
+name = "Fetching Book Metadata",
+err,
+level = "info"
+fields(
+    request_id = %Uuid::new_v4(),
+)
+)]
+async fn fetch_book_meta(book_id: u64) -> Result<RoyalRoadBook, Box<dyn Error + Sync + Send>> {
+    let link = format!("https://royalroad.com/fiction/{}", book_id);
+    let html = reqwest::get(&link).await?.text().await?;
+    let doc = Html::parse_document(&html);
+    let title_selector = Selector::parse("div.fic-header h1").unwrap();
+    let author_selector = Selector::parse("div.fic-header h4 span[property=name]").unwrap();
+
+    let title = doc
+        .select(&title_selector)
+        .next()
+        .ok_or_else(|| simple_error!(&format!("Failed to find title in {}", link)))?
+        .text()
+        .fold(String::new(), |a, b| a + b)
+        .trim()
+        .to_string();
+
+    if title.is_empty() {
+        bail!("Title text was empty.")
+    }
+
+    let author = doc
+        .select(&author_selector)
+        .next()
+        .ok_or_else(|| simple_error!(&format!("Failed to find author in {}", link)))?
+        .text()
+        .fold(String::new(), |a, b| a + b)
+        .trim()
+        .to_string();
+    if author.is_empty() {
+        bail!("Author text was empty.")
+    }
+    Ok(RoyalRoadBook {
+        title,
+        author,
+        royalroad_id: book_id,
+    })
+}
+
+pub async fn download_book(chapter_ids: &BTreeSet<u64>) -> Result<Book, Box<dyn Error>> {
     if chapter_ids.is_empty() {
         bail!("Expected chapter ids, but received an empty set.")
     }
@@ -45,7 +146,7 @@ struct ChapterWithMeta {
     title: String,
 }
 
-async fn get_chapter(chapter_id: &u32) -> Result<ChapterWithMeta, Box<dyn Error>> {
+async fn get_chapter(chapter_id: &u64) -> Result<ChapterWithMeta, Box<dyn Error>> {
     let link = format!("https://www.royalroad.com/fiction/chapter/{}", chapter_id);
     let res = reqwest::get(&link).await?.text().await?;
     let doc = Html::parse_document(&res);
