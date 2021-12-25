@@ -10,6 +10,7 @@ mod royalroad;
 mod schema;
 mod smtp;
 mod storage;
+mod utils;
 #[macro_use]
 extern crate simple_error;
 #[macro_use]
@@ -45,7 +46,7 @@ async fn main() {
     let book_bytes_cache: Arc<Mutex<TtlCache<MailRequestBody, Vec<u8>>>> =
         Arc::new(Mutex::new(TtlCache::new(1000)));
 
-    let royalroad = warp::post()
+    let _royalroad = warp::post()
         .and(warp::path("royalroad"))
         .and(warp::post())
         .and(warp::body::content_length_limit(1024 * 16))
@@ -53,7 +54,7 @@ async fn main() {
         .and(warp::body::json())
         .and_then(royalroad_handler);
 
-    let mail = warp::post()
+    let _mail = warp::post()
         .and(warp::path("mail"))
         .and(warp::post())
         .and(warp::body::content_length_limit(1024 * 16))
@@ -63,21 +64,9 @@ async fn main() {
 
     let pool = establish_connection_pool();
 
-    let create_book = warp::post()
-        .and(warp::path("books"))
-        .and(warp::post())
-        .and(warp::body::content_length_limit(1024))
-        .and(warp::any().map(move || pool.clone()))
-        .and(warp::body::json())
-        .and_then(controllers::books::create_book);
+    let book_routes = controllers::books::get_filters(pool);
 
-    let server = warp::serve(
-        royalroad
-            .or(mail)
-            .or(create_book)
-            .with(warp::trace::request()),
-    )
-    .run(([0, 0, 0, 0], 3000));
+    let server = warp::serve(book_routes.with(warp::trace::request())).run(([0, 0, 0, 0], 3000));
     let cancel = signal::ctrl_c();
     tokio::select! {
     _ = server => 0,

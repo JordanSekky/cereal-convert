@@ -6,6 +6,7 @@ use crate::chapter::Book;
 use crate::chapter::Chapter;
 use crate::models::BookKind;
 use crate::models::NewBook;
+use crate::utils::ResponseError;
 
 use futures::future::try_join_all;
 use scraper::{Html, Selector};
@@ -32,7 +33,7 @@ impl From<RoyalRoadBook> for NewBook {
 }
 
 impl RoyalRoadBook {
-    pub fn royalroad_book_id(request_url: &str) -> Result<u64, Box<dyn Error + Sync + Send>> {
+    pub fn royalroad_book_id(request_url: &str) -> Result<u64, ResponseError> {
         let request_url = Url::parse(request_url)?;
         let valid_hosts = vec!["www.royalroad.com", "royalroad.com"];
         if request_url.host_str().is_none()
@@ -40,26 +41,38 @@ impl RoyalRoadBook {
                 .iter()
                 .any(|v| *v == request_url.host_str().unwrap())
         {
-            bail!("Provided url is not a valid royalroad url.");
+            return Err(ResponseError::RoyalRoadUrlError {
+                message: String::from(
+                    "Provided hostname is not www.royalroad.com or royalroad.com.",
+                ),
+            });
         }
         let path_segments = request_url.path_segments();
         let mut path_segments = match path_segments {
-            None => bail!("Provided url is not a valid royalroad url."),
+            None => {
+                return Err(ResponseError::RoyalRoadUrlError {
+                    message: String::from("No path provided."),
+                })
+            }
             Some(segments) => segments,
         };
 
         let path_start = path_segments.next();
         if path_start != Some("fiction") {
-            bail!("Provided url is not a valid royalroad url.");
+            return Err(ResponseError::RoyalRoadUrlError {
+                message: String::from("Url does not correspond to a book."),
+            });
         }
         let royalroad_id: Option<u64> = path_segments.next().and_then(|id| id.parse().ok());
         if royalroad_id.is_none() {
-            bail!("Provided url is not a valid royalroad url.");
+            return Err(ResponseError::RoyalRoadUrlError {
+                message: String::from("Book id not valid."),
+            });
         }
         return Ok(royalroad_id.unwrap());
     }
 
-    pub async fn from_book_id(book_id: u64) -> Result<RoyalRoadBook, Box<dyn Error + Sync + Send>> {
+    pub async fn from_book_id(book_id: u64) -> Result<RoyalRoadBook, ResponseError> {
         return fetch_book_meta(book_id).await;
     }
 }
@@ -72,7 +85,7 @@ fields(
     request_id = %Uuid::new_v4(),
 )
 )]
-async fn fetch_book_meta(book_id: u64) -> Result<RoyalRoadBook, Box<dyn Error + Sync + Send>> {
+async fn fetch_book_meta(book_id: u64) -> Result<RoyalRoadBook, ResponseError> {
     let link = format!("https://royalroad.com/fiction/{}", book_id);
     let html = reqwest::get(&link).await?.text().await?;
     let doc = Html::parse_document(&html);
@@ -82,26 +95,34 @@ async fn fetch_book_meta(book_id: u64) -> Result<RoyalRoadBook, Box<dyn Error + 
     let title = doc
         .select(&title_selector)
         .next()
-        .ok_or_else(|| simple_error!(&format!("Failed to find title in {}", link)))?
+        .ok_or_else(|| ResponseError::RoyalRoadError {
+            message: String::from("Failed to find title element on royalroad page."),
+        })?
         .text()
         .fold(String::new(), |a, b| a + b)
         .trim()
         .to_string();
 
     if title.is_empty() {
-        bail!("Title text was empty.")
+        return Err(ResponseError::RoyalRoadError {
+            message: String::from("Empty title element on royalroad page."),
+        });
     }
 
     let author = doc
         .select(&author_selector)
         .next()
-        .ok_or_else(|| simple_error!(&format!("Failed to find author in {}", link)))?
+        .ok_or_else(|| ResponseError::RoyalRoadError {
+            message: String::from("Failed to find author element on royalroad page."),
+        })?
         .text()
         .fold(String::new(), |a, b| a + b)
         .trim()
         .to_string();
     if author.is_empty() {
-        bail!("Author text was empty.")
+        return Err(ResponseError::RoyalRoadError {
+            message: String::from("Empty author element on royalroad page."),
+        });
     }
     Ok(RoyalRoadBook {
         title,
