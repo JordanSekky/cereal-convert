@@ -53,7 +53,7 @@ pub struct Book {
     name: String,
     author: String,
     created_at: DateTime<Utc>,
-    modified_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
     metadata: BookKind,
 }
 
@@ -65,7 +65,7 @@ pub struct Chapter {
     url: String,
     book_id: Uuid,
     created_at: DateTime<Utc>,
-    modified_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 
 #[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]
@@ -77,7 +77,7 @@ pub struct Subscription {
     url: String,
     book_id: Uuid,
     created_at: DateTime<Utc>,
-    modified_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 
 #[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]
@@ -93,5 +93,5 @@ pub struct DeliveryMethod {
     pub pushover_key_verified: bool,
     pub pushover_key_enabled: bool,
     pub created_at: DateTime<Utc>,
-    pub modified_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

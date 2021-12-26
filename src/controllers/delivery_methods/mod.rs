@@ -84,7 +84,7 @@ pub async fn validate_kindle_email(
     ) {
         (Some(code), Some(time)) => {
             if request.verification_code == code
-                && (chrono::Utc::now() - time < chrono::Duration::minutes(5))
+                && (chrono::Utc::now() - time < chrono::Duration::hours(1))
             {
                 let db_span = span!(Level::INFO, "Inserting or updating kindle email.");
                 let _ = {

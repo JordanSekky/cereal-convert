@@ -17,4 +17,7 @@ CREATE TABLE delivery_methods (
     updated_at timestamptz NOT NULL DEFAULT NOW()
 );
 
-SELECT diesel_manage_updated_at('delivery_methods')
+SELECT diesel_manage_updated_at('delivery_methods');
+SELECT diesel_manage_updated_at('books');
+SELECT diesel_manage_updated_at('subscriptions');
+SELECT diesel_manage_updated_at('chapters');
