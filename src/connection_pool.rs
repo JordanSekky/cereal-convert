@@ -1,7 +1,14 @@
 use std::env;
 
-use diesel::{Connection, ConnectionError, PgConnection};
+use diesel::sql_types::Integer;
+use diesel::{Connection, ConnectionError, PgConnection, RunQueryDsl};
 use mobc::{async_trait, Manager, Pool};
+
+#[derive(QueryableByName)]
+struct TestResult {
+    #[sql_type = "Integer"]
+    _a: i32,
+}
 
 pub struct PgConnectionManager;
 
@@ -16,7 +23,12 @@ impl Manager for PgConnectionManager {
     }
 
     async fn check(&self, conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
-        Ok(conn)
+        match diesel::sql_query("SELECT 1 as _a").load::<TestResult>(&conn) {
+            Ok(_) => Ok(conn),
+            Err(_) => Err(ConnectionError::BadConnection(String::from(
+                "Failed to select 1.",
+            ))),
+        }
     }
 }
 

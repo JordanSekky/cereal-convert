@@ -1,34 +1,20 @@
 use crate::aggregator::get_book_html;
 use crate::chapter::BookMeta;
-use crate::smtp::send_file_smtp;
+use crate::smtp::send_book_smtp;
 use crate::storage::{fetch_book, StorageLocation};
+use crate::util::ErrorMessage;
 use crate::{calibre, royalroad, storage};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::convert::Infallible;
 use std::error::Error;
-use std::fs::File;
 use std::hash::Hash;
-use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{info, info_span, Instrument};
 use ttl_cache::TtlCache;
 use uuid::Uuid;
-
-#[derive(Serialize)]
-pub struct ErrorMessage {
-    pub message: String,
-}
-
-impl ErrorMessage {
-    fn from(error: &Box<dyn Error>) -> ErrorMessage {
-        ErrorMessage {
-            message: error.as_ref().to_string().clone(),
-        }
-    }
-}
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ConvertRequestBody {
@@ -61,7 +47,9 @@ pub async fn royalroad_handler(
             warp::http::StatusCode::OK,
         )),
         Err(err) => Ok(warp::reply::with_status(
-            warp::reply::json(&ErrorMessage::from(&err)),
+            warp::reply::json(&ErrorMessage {
+                message: err.as_ref().to_string(),
+            }),
             warp::http::StatusCode::INTERNAL_SERVER_ERROR,
         )),
     }
@@ -90,16 +78,14 @@ async fn convert_and_store_book(
         get_book_html(&book)
     };
 
-    let converted_book_path = {
+    let converted_book_bytes = {
         let span = &info_span!("Converting chapter contents to mobi.");
         let _guard = span.enter();
         calibre::convert_to_mobi(&aggregate)?
     };
     info!("Uploading mobi file to cloud storage.");
     let response: ConvertRequestResponse = {
-        let mut book_bytes = Vec::new();
-        File::open(converted_book_path)?.read_to_end(&mut book_bytes)?;
-        let location = storage::store_book(book_bytes)
+        let location = storage::store_book(converted_book_bytes)
             .instrument(info_span!("Storing mobi to cloud storage."))
             .await?;
         ConvertRequestResponse {
@@ -143,7 +129,9 @@ pub async fn smtp_handler(
             warp::http::StatusCode::OK,
         )),
         Err(err) => Ok(warp::reply::with_status(
-            warp::reply::json(&ErrorMessage::from(&err)),
+            warp::reply::json(&ErrorMessage {
+                message: err.as_ref().to_string(),
+            }),
             warp::http::StatusCode::INTERNAL_SERVER_ERROR,
         )),
     }
@@ -172,7 +160,7 @@ async fn fetch_and_mail_book(
             .await?
         }
     };
-    send_file_smtp(bytes, &body.email, &body.book)
+    send_book_smtp(bytes.as_slice(), &body.email, &body.book)
         .instrument(info_span!("Sending email."))
         .await?;
     Ok(MailRequestResponse {})

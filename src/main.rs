@@ -10,7 +10,7 @@ mod royalroad;
 mod schema;
 mod smtp;
 mod storage;
-mod utils;
+mod util;
 #[macro_use]
 extern crate simple_error;
 #[macro_use]
@@ -64,9 +64,15 @@ async fn main() {
 
     let pool = establish_connection_pool();
 
-    let book_routes = controllers::books::get_filters(pool);
+    let book_routes = controllers::books::get_filters(pool.clone());
+    let delivery_methods_routes = controllers::delivery_methods::get_filters(pool.clone());
 
-    let server = warp::serve(book_routes.with(warp::trace::request())).run(([0, 0, 0, 0], 3000));
+    let server = warp::serve(
+        book_routes
+            .or(delivery_methods_routes)
+            .with(warp::trace::request()),
+    )
+    .run(([0, 0, 0, 0], 3000));
     let cancel = signal::ctrl_c();
     tokio::select! {
     _ = server => 0,
