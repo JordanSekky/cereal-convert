@@ -1,6 +1,6 @@
 use crate::aggregator::get_book_html;
 use crate::chapter::BookMeta;
-use crate::smtp::send_book_smtp;
+use crate::smtp::send_book;
 use crate::storage::{fetch_book, StorageLocation};
 use crate::util::ErrorMessage;
 use crate::{calibre, royalroad, storage};
@@ -160,7 +160,7 @@ async fn fetch_and_mail_book(
             .await?
         }
     };
-    send_book_smtp(bytes.as_slice(), &body.email, &body.book)
+    send_book(bytes.as_slice(), &body.email, &body.book)
         .instrument(info_span!("Sending email."))
         .await?;
     Ok(MailRequestResponse {})
