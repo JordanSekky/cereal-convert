@@ -1,5 +1,6 @@
 use diesel::BelongingToDsl;
 use diesel::ExpressionMethods;
+use diesel::JoinOnDsl;
 use diesel::QueryDsl;
 use diesel::RunQueryDsl;
 use itertools::Itertools;
@@ -13,9 +14,11 @@ use tracing::error;
 use tracing::info;
 use uuid::Uuid;
 
+use crate::models::DeliveryMethod;
 use crate::models::NewChapter;
 use crate::models::NewUnsentChapter;
 use crate::models::UnsentChapter;
+use crate::pushover;
 use crate::{
     connection_pool::PgConnectionManager,
     models::{Book, BookKind, Chapter},
@@ -134,6 +137,53 @@ async fn get_subscribers_for_books(
         .get_results::<(Uuid, String)>(&conn)?
         .into_iter()
         .into_group_map())
+}
+
+pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let conn = pool.get().await?.into_inner();
+
+    loop {
+        interval.tick().await;
+        let chaps: Vec<(UnsentChapter, Chapter, Book, DeliveryMethod)> = {
+            use crate::schema::chapters;
+            use crate::schema::delivery_methods;
+            use crate::schema::unsent_chapters;
+            unsent_chapters::table
+                .inner_join(chapters::table.on(unsent_chapters::chapter_id.eq(chapters::id)))
+                .inner_join(books::table.on(chapters::book_id.eq(books::id)))
+                .inner_join(
+                    delivery_methods::table
+                        .on(unsent_chapters::user_id.eq(delivery_methods::user_id)),
+                )
+                .load(&conn)
+        }?;
+        for (_, chapter, book, delivery_method) in chaps.into_iter() {
+            if (&delivery_method).pushover_enabled
+                && (&delivery_method).pushover_key_verified
+                && (&delivery_method).pushover_key.is_some()
+            {
+                let notification = pushover::send_message(
+                    (&delivery_method).pushover_key.clone().unwrap().as_str(),
+                    &format!(
+                        "A new chapter of {} by {} has been released: {}",
+                        book.name, book.author, chapter.name,
+                    ),
+                )
+                .await;
+                match notification {
+                    Ok(_) => {}
+                    Err(x) => error!(
+                        ?x,
+                        "Failed to deliver notification for chapter {:?} and delivery_method {:?}",
+                        chapter,
+                        delivery_method
+                    ),
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

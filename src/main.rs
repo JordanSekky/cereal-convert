@@ -47,9 +47,11 @@ async fn main() {
     let cancel = tokio::spawn(signal::ctrl_c());
     let server = tokio::spawn(api_server_future);
     let check_for_new_chapters = tokio::spawn(tasks::check_new_chap_loop(pool.clone()));
+    let send_notification = tokio::spawn(tasks::send_notifications_loop(pool.clone()));
     tokio::select! {
     _ = server => 0,
     _ = check_for_new_chapters => { println!("New chapter check thread failed. Exiting"); 255}
+    _ = send_notification => { println!("Send notification thread failed. Exiting"); 255}
     _ = cancel => { println!("Received exit signal, exiting."); 255}
     };
 }
