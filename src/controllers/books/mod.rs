@@ -113,19 +113,15 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
     match result {
         Ok(x) => reply::with_status(reply::json(&x), StatusCode::OK),
         Err(err) => {
+            let internal_server_error = (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorMessage {
+                    message: String::from("An internal exception occurred."),
+                },
+            );
             let (status, body) = match err {
-                Error::EstablishConnection(_) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrorMessage {
-                        message: String::from("An internal exception occurred."),
-                    },
-                ),
-                Error::QueryResult(_) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrorMessage {
-                        message: String::from("An internal exception occurred."),
-                    },
-                ),
+                Error::EstablishConnection(_) => internal_server_error,
+                Error::QueryResult(_) => internal_server_error,
                 Error::RoyalRoadError(royalroad::Error::UrlParseError(_)) => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ErrorMessage {
@@ -138,18 +134,9 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
                         message: String::from("Provide a url to a royalroad book."),
                     },
                 ),
-                Error::RoyalRoadError(royalroad::Error::WebParseError(_)) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrorMessage {
-                        message: String::from("An internal exception occurred."),
-                    },
-                ),
-                Error::RoyalRoadError(royalroad::Error::ReqwestError(_)) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrorMessage {
-                        message: String::from("An internal exception occurred."),
-                    },
-                ),
+                Error::RoyalRoadError(royalroad::Error::WebParseError(_)) => internal_server_error,
+                Error::RoyalRoadError(royalroad::Error::ReqwestError(_)) => internal_server_error,
+                Error::RoyalRoadError(_) => internal_server_error,
             };
             error!(
                 "Returning error body: {}, StatusCode: {}, Source: {:?}",

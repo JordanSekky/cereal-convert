@@ -6,6 +6,8 @@ use crate::{calibre, smtp};
 pub enum Error {
     EstablishConnection(mobc::Error<diesel::ConnectionError>),
     QueryResult(diesel::result::Error),
+    EmailParseError,
+    NotKindleEmailError,
     Validation(String),
     ValidationConversion(calibre::Error),
     ValidationDelivery(smtp::Error),
@@ -40,5 +42,11 @@ impl From<calibre::Error> for Error {
 impl From<smtp::Error> for Error {
     fn from(x: smtp::Error) -> Self {
         Error::ValidationDelivery(x)
+    }
+}
+
+impl<'a> From<addr::error::Error<'a>> for Error {
+    fn from(_: addr::error::Error) -> Self {
+        Error::EmailParseError
     }
 }

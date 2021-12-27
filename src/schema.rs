@@ -14,10 +14,11 @@ table! {
         id -> Uuid,
         name -> Text,
         author -> Text,
-        url -> Text,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         book_id -> Uuid,
+        published_at -> Timestamptz,
+        metadata -> Jsonb,
     }
 }
 
@@ -47,9 +48,21 @@ table! {
     }
 }
 
+table! {
+    unsent_chapters (id) {
+        id -> Uuid,
+        user_id -> Text,
+        chapter_id -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+joinable!(unsent_chapters -> chapters (chapter_id));
+
 allow_tables_to_appear_in_same_query!(
     books,
     chapters,
     delivery_methods,
     subscriptions,
+    unsent_chapters,
 );

@@ -6,6 +6,8 @@ pub enum Error {
     ReqwestError(reqwest::Error),
     WebParseError(String),
     UrlError(String),
+    RssError(rss::Error),
+    RssContentsError(String),
 }
 
 impl Display for Error {
@@ -24,5 +26,11 @@ impl From<url::ParseError> for Error {
 impl From<reqwest::Error> for Error {
     fn from(x: reqwest::Error) -> Self {
         Error::ReqwestError(x)
+    }
+}
+
+impl From<rss::Error> for Error {
+    fn from(x: rss::Error) -> Self {
+        Error::RssError(x)
     }
 }

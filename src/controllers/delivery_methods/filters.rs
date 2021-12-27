@@ -54,6 +54,18 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
                 ),
                 Error::ValidationConversion(_) => internal_server_error,
                 Error::ValidationDelivery(_) => internal_server_error,
+                Error::EmailParseError => (
+                    StatusCode::BAD_REQUEST,
+                    ErrorMessage {
+                        message: "Failed to parse kindle email.".into(),
+                    },
+                ),
+                Error::NotKindleEmailError => (
+                    StatusCode::BAD_REQUEST,
+                    ErrorMessage {
+                        message: "Email address must be a kindle.com address.".into(),
+                    },
+                ),
             };
 
             error!(

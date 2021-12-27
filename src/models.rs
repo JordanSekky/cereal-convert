@@ -1,4 +1,4 @@
-use crate::schema::{books, chapters, delivery_methods, subscriptions};
+use crate::schema::*;
 
 use chrono::{DateTime, Utc};
 use diesel::{
@@ -39,6 +39,36 @@ where
     }
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[sql_type = "sql_types::Jsonb"]
+pub enum ChapterKind {
+    RoyalRoad { id: u64 },
+}
+
+impl<DB> ToSql<sql_types::Jsonb, DB> for ChapterKind
+where
+    DB: diesel::backend::Backend,
+    serde_json::Value: ToSql<sql_types::Jsonb, DB>,
+{
+    fn to_sql<W: std::io::Write>(
+        &self,
+        out: &mut diesel::serialize::Output<W, DB>,
+    ) -> diesel::serialize::Result {
+        serde_json::to_value(self)?.to_sql(out)
+    }
+}
+
+impl<DB> FromSql<sql_types::Jsonb, DB> for ChapterKind
+where
+    DB: diesel::backend::Backend,
+    serde_json::Value: FromSql<sql_types::Jsonb, DB>,
+{
+    fn from_sql(bytes: Option<&DB::RawValue>) -> diesel::deserialize::Result<Self> {
+        let value = serde_json::Value::from_sql(bytes)?;
+        Ok(serde_json::from_value(value)?)
+    }
+}
+
 #[derive(Insertable, Debug)]
 #[table_name = "books"]
 pub struct NewBook {
@@ -49,23 +79,35 @@ pub struct NewBook {
 
 #[derive(Identifiable, Queryable, PartialEq, Debug, Serialize)]
 pub struct Book {
-    id: Uuid,
-    name: String,
-    author: String,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    metadata: BookKind,
+    pub id: Uuid,
+    pub name: String,
+    pub author: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub metadata: BookKind,
+}
+
+#[derive(Insertable, PartialEq, Debug)]
+#[table_name = "chapters"]
+pub struct NewChapter {
+    pub name: String,
+    pub author: String,
+    pub book_id: Uuid,
+    pub metadata: ChapterKind,
+    pub published_at: DateTime<Utc>,
 }
 
 #[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]
+#[belongs_to(Book)]
 pub struct Chapter {
-    id: Uuid,
-    name: String,
-    author: String,
-    url: String,
-    book_id: Uuid,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+    pub id: Uuid,
+    pub name: String,
+    pub author: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub book_id: Uuid,
+    pub published_at: DateTime<Utc>,
+    pub metadata: ChapterKind,
 }
 
 #[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]
@@ -78,6 +120,7 @@ pub struct Subscription {
     book_id: Uuid,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    user_id: String,
 }
 
 #[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]
@@ -94,4 +137,20 @@ pub struct DeliveryMethod {
     pub pushover_key_enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]
+#[belongs_to(Chapter)]
+pub struct UnsentChapter {
+    pub id: Uuid,
+    pub user_id: String,
+    pub chapter_id: Uuid,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Insertable, Debug)]
+#[table_name = "unsent_chapters"]
+pub struct NewUnsentChapter {
+    pub user_id: String,
+    pub chapter_id: Uuid,
 }

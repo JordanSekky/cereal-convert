@@ -130,6 +130,16 @@ pub async fn register_kindle_email(
     request: AddKindleEmailRequest,
     db_pool: Pool<PgConnectionManager>,
 ) -> Result<serde_json::Map<String, Value>, Error> {
+    // Assert email domain is "kindle.com". Emails aren't free.
+    let email = addr::parse_email_address(&request.kindle_email)?;
+    match email.host() {
+        addr::email::Host::Domain(hostname) => match hostname.as_str() {
+            "kindle.com" => (),
+            _ => return Err(Error::NotKindleEmailError),
+        },
+        addr::email::Host::IpAddr(_) => return Err(Error::EmailParseError),
+    }
+
     let conn = db_pool
         .get()
         .instrument(tracing::info_span!("Acquiring a DB Connection."))

@@ -5,8 +5,11 @@ extern crate url;
 use crate::chapter::Book;
 use crate::chapter::Chapter;
 use crate::models::BookKind;
+use crate::models::ChapterKind;
 use crate::models::NewBook;
+use crate::models::NewChapter;
 
+use chrono::Utc;
 pub use error::Error;
 use futures::future::try_join_all;
 use scraper::{Html, Selector};
@@ -217,4 +220,75 @@ async fn get_chapter(chapter_id: &u64) -> Result<ChapterWithMeta, Box<dyn std::e
         author: author,
         title: book_title,
     })
+}
+
+async fn get_chapter_body(chapter_id: &u64) -> Result<String, Error> {
+    let link = format!("https://www.royalroad.com/fiction/chapter/{}", chapter_id);
+    let res = reqwest::get(&link).await?.text().await?;
+    let doc = Html::parse_document(&res);
+    let chapter_body_selector = Selector::parse("div.chapter-inner").unwrap();
+
+    let body = doc
+        .select(&chapter_body_selector)
+        .next()
+        .ok_or_else(|| Error::WebParseError(format!("Failed to find body in {}", link)))?
+        .html();
+    Ok(body)
+}
+
+pub async fn get_chapters(
+    book_id: u64,
+    book_uuid: Uuid,
+    author: &str,
+) -> Result<Vec<NewChapter>, Error> {
+    let content = reqwest::get(format!("https://www.royalroad.com/syndication/{}", book_id))
+        .await?
+        .bytes()
+        .await?;
+    let channel = rss::Channel::read_from(&content[..])?;
+    channel
+        .items()
+        .iter()
+        .map(|item| {
+            Ok(NewChapter {
+                book_id: book_uuid,
+                metadata: ChapterKind::RoyalRoad {
+                    id: get_chapter_id_from_link(item.link())?,
+                },
+                author: author.into(),
+                name: item
+                    .title()
+                    .ok_or(Error::RssContentsError(
+                        "No valid royalroad chapter title in RSS Item.".into(),
+                    ))?
+                    .into(),
+                published_at: get_published_at(item.pub_date())?,
+            })
+        })
+        .collect()
+}
+
+fn get_chapter_id_from_link(link: Option<&str>) -> Result<u64, Error> {
+    link.and_then(|link| {
+        link.rsplit_once("/")
+            .map(|(_left, right)| right)
+            .and_then(|x| x.parse().ok())
+    })
+    .ok_or(Error::RssContentsError(
+        "No valid royalroad chapter link in RSS Item.".into(),
+    ))
+}
+
+fn get_published_at(pub_date: Option<&str>) -> Result<chrono::DateTime<Utc>, Error> {
+    match pub_date {
+        Some(datestamp) => match chrono::DateTime::parse_from_rfc2822(datestamp) {
+            Ok(date) => Ok(date.with_timezone(&Utc)),
+            Err(_) => Err(Error::RssContentsError(
+                "No valid published date in RSS Item".into(),
+            )),
+        },
+        None => Err(Error::RssContentsError(
+            "No valid published date in RSS Item".into(),
+        )),
+    }
 }
