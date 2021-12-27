@@ -35,6 +35,8 @@ table! {
         pushover_enabled -> Bool,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        pushover_verification_code_time -> Nullable<Timestamptz>,
+        pushover_verification_code -> Nullable<Text>,
     }
 }
 

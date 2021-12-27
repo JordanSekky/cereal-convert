@@ -1,7 +1,7 @@
 mod errors;
 mod filters;
 use crate::models::DeliveryMethod;
-use crate::{calibre, smtp};
+use crate::{calibre, pushover, smtp};
 use crate::{connection_pool::PgConnectionManager, schema::delivery_methods};
 
 use crate::schema::delivery_methods::dsl::*;
@@ -34,20 +34,9 @@ pub struct AddKindleEmailRequest {
 
 #[derive(Debug, AsChangeset, Insertable)]
 #[table_name = "delivery_methods"]
-struct AddKindleEmailChangeset {
+struct KindleEmailChangeset {
     user_id: String,
     kindle_email: String,
-    kindle_email_verified: bool,
-    kindle_email_enabled: bool,
-    kindle_email_verification_code_time: Option<DateTime<Utc>>,
-    kindle_email_verification_code: Option<String>,
-}
-
-#[derive(Debug, AsChangeset, Insertable)]
-#[table_name = "delivery_methods"]
-struct VerifyKindleEmailChangeset {
-    user_id: String,
-    kindle_email: Option<String>,
     kindle_email_verified: bool,
     kindle_email_enabled: bool,
     kindle_email_verification_code_time: Option<DateTime<Utc>>,
@@ -89,9 +78,12 @@ pub async fn validate_kindle_email(
                 let db_span = span!(Level::INFO, "Inserting or updating kindle email.");
                 let _ = {
                     let _a = db_span.enter();
-                    let changeset = VerifyKindleEmailChangeset {
+                    let changeset = KindleEmailChangeset {
                         user_id: request.user_id.clone(),
-                        kindle_email: delivery_method.kindle_email.clone(),
+                        kindle_email: delivery_method
+                            .kindle_email
+                            .ok_or(Error::NotKindleEmailError)?
+                            .clone(),
                         kindle_email_enabled: true,
                         kindle_email_verified: true,
                         kindle_email_verification_code_time: None,
@@ -155,7 +147,7 @@ pub async fn register_kindle_email(
             .map(char::from)
             .collect::<String>()
             .to_uppercase();
-        let changeset = AddKindleEmailChangeset {
+        let changeset = KindleEmailChangeset {
             user_id: request.user_id,
             kindle_email: request.kindle_email.clone(),
             kindle_email_enabled: false,
@@ -178,5 +170,143 @@ pub async fn register_kindle_email(
         )
         .await?;
     };
+    return Ok(serde_json::Map::new());
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ValidatePushoverRequest {
+    user_id: String,
+    verification_code: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddPushoverRequest {
+    user_id: String,
+    pushover_key: String,
+}
+
+#[derive(Debug, AsChangeset, Insertable)]
+#[table_name = "delivery_methods"]
+struct PushoverChangeset {
+    user_id: String,
+    pushover_key: String,
+    pushover_key_verified: bool,
+    pushover_enabled: bool,
+    pushover_verification_code_time: Option<DateTime<Utc>>,
+    pushover_verification_code: Option<String>,
+}
+
+#[tracing::instrument(
+name = "Validate pushover token.",
+err,
+level = "info"
+skip(db_pool),
+fields(
+    request_id = %Uuid::new_v4(),
+)
+)]
+pub async fn validate_pushover_key(
+    request: ValidatePushoverRequest,
+    db_pool: Pool<PgConnectionManager>,
+) -> Result<serde_json::Map<String, Value>, Error> {
+    let conn = db_pool
+        .get()
+        .instrument(tracing::info_span!("Acquiring a DB Connection."))
+        .await?;
+    let conn = conn.into_inner();
+
+    let db_check_span = span!(Level::INFO, "Inserting or updating pushover token.");
+    let delivery_method: DeliveryMethod = {
+        let _a = db_check_span.enter();
+        delivery_methods.find(&request.user_id).first(&conn)?
+    };
+    match (
+        delivery_method.pushover_verification_code,
+        delivery_method.pushover_verification_code_time,
+    ) {
+        (Some(code), Some(time)) => {
+            if request.verification_code == code
+                && (chrono::Utc::now() - time < chrono::Duration::minutes(5))
+            {
+                let db_span = span!(Level::INFO, "Inserting or updating kindle email.");
+                let _ = {
+                    let _a = db_span.enter();
+                    let changeset = PushoverChangeset {
+                        user_id: request.user_id.clone(),
+                        pushover_key: delivery_method
+                            .pushover_key
+                            .ok_or(Error::NoPushoverKeyError)?
+                            .clone(),
+                        pushover_enabled: true,
+                        pushover_key_verified: true,
+                        pushover_verification_code_time: None,
+                        pushover_verification_code: None,
+                    };
+                    let _result = diesel::insert_into(delivery_methods)
+                        .values(&changeset)
+                        .on_conflict(user_id)
+                        .do_update()
+                        .set(&changeset)
+                        .execute(&conn)?;
+                };
+            } else {
+                return Err(Error::Validation("Invalid code.".into()));
+            }
+        }
+        _ => {
+            return Err(Error::Validation(
+                "User has no in-progress pushover validations.".into(),
+            ))
+        }
+    };
+    return Ok(serde_json::Map::new());
+}
+
+#[tracing::instrument(
+name = "Add pushover key.",
+err,
+level = "info"
+skip(db_pool),
+fields(
+    request_id = %Uuid::new_v4(),
+)
+)]
+pub async fn register_pushover_key(
+    request: AddPushoverRequest,
+    db_pool: Pool<PgConnectionManager>,
+) -> Result<serde_json::Map<String, Value>, Error> {
+    let conn = db_pool
+        .get()
+        .instrument(tracing::info_span!("Acquiring a DB Connection."))
+        .await?;
+    let conn = conn.into_inner();
+
+    let db_check_span = span!(Level::INFO, "Inserting or updating pushover key.");
+    let code = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(10)
+        .map(char::from)
+        .collect::<String>()
+        .to_uppercase();
+    let _ = {
+        let _a = db_check_span.enter();
+        let changeset = PushoverChangeset {
+            user_id: request.user_id,
+            pushover_key: request.pushover_key.clone(),
+            pushover_enabled: false,
+            pushover_key_verified: false,
+            pushover_verification_code_time: Some(chrono::Utc::now()),
+            pushover_verification_code: Some(code.clone()),
+        };
+        let _result = diesel::insert_into(delivery_methods)
+            .values(&changeset)
+            .on_conflict(user_id)
+            .do_update()
+            .set(&changeset)
+            .execute(&conn)?;
+    };
+    pushover::send_verification_token(&request.pushover_key, &code.clone()).await?;
     return Ok(serde_json::Map::new());
 }

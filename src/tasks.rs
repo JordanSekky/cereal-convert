@@ -29,13 +29,13 @@ pub async fn check_new_chap_loop(pool: Pool<PgConnectionManager>) -> Result<(), 
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
+        interval.tick().await;
         match check_and_queue_chapters(pool.clone()).await {
             Ok(_) => {}
             Err(err) => {
                 error!(error = ?err, "Error checking for new chapters.")
             }
         }
-        interval.tick().await;
     }
 }
 
@@ -44,9 +44,6 @@ name = "Discovering and queueing new chapters.",
 err,
 level = "info"
 skip(pool),
-fields(
-    request_id = %Uuid::new_v4(),
-)
 )]
 async fn check_and_queue_chapters(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
     info!("Checking for new chapters");
@@ -93,9 +90,6 @@ name = "Discovering new chapters.",
 err,
 level = "info"
 skip(pool),
-fields(
-    request_id = %Uuid::new_v4(),
-)
 )]
 async fn check_for_new_chapters(pool: Pool<PgConnectionManager>) -> Result<Vec<Chapter>, Error> {
     let conn = pool.get().await?.into_inner();

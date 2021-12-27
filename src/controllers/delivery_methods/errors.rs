@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{calibre, smtp};
+use crate::{calibre, pushover, smtp};
 
 #[derive(Debug)]
 pub enum Error {
@@ -8,6 +8,7 @@ pub enum Error {
     QueryResult(diesel::result::Error),
     EmailParseError,
     NotKindleEmailError,
+    NoPushoverKeyError,
     Validation(String),
     ValidationConversion(calibre::Error),
     ValidationDelivery(smtp::Error),
@@ -48,5 +49,18 @@ impl From<smtp::Error> for Error {
 impl<'a> From<addr::error::Error<'a>> for Error {
     fn from(_: addr::error::Error) -> Self {
         Error::EmailParseError
+    }
+}
+
+impl From<pushover::Error> for Error {
+    fn from(x: pushover::Error) -> Self {
+        match x {
+            pushover::Error::NotificationServiceFailure(_) => {
+                Error::Validation("Pushover Notification Server Replied with an error.".into())
+            }
+            pushover::Error::RequestFailure(_) => {
+                Error::Validation("Failed to reach pushover notification server.".into())
+            }
+        }
     }
 }

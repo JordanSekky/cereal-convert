@@ -134,9 +134,11 @@ pub struct DeliveryMethod {
     pub kindle_email_verification_code: Option<String>,
     pub pushover_key: Option<String>,
     pub pushover_key_verified: bool,
-    pub pushover_key_enabled: bool,
+    pub pushover_enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub pushover_verification_code_time: Option<DateTime<Utc>>,
+    pub pushover_verification_code: Option<String>,
 }
 
 #[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]

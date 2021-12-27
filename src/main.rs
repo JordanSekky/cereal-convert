@@ -6,6 +6,7 @@ mod controllers;
 mod handlers;
 mod honeycomb;
 mod models;
+mod pushover;
 mod royalroad;
 mod schema;
 mod smtp;

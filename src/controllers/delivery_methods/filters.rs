@@ -5,7 +5,10 @@ use warp::{http::StatusCode, reply, Filter, Reply};
 
 use crate::{connection_pool::PgConnectionManager, util::ErrorMessage};
 
-use super::{register_kindle_email, validate_kindle_email, Error};
+use super::{
+    register_kindle_email, register_pushover_key, validate_kindle_email, validate_pushover_key,
+    Error,
+};
 
 pub fn get_filters(
     db_pool: Pool<PgConnectionManager>,
@@ -20,6 +23,7 @@ pub fn get_filters(
         .and(warp::any().map(move || add_db.clone()))
         .then(register_kindle_email)
         .map(map_result);
+    let validate_db = db_pool.clone();
     let validate_email_filter = warp::post()
         .and(warp::path("delivery_methods"))
         .and(warp::path("kindle"))
@@ -27,10 +31,33 @@ pub fn get_filters(
         .and(warp::path::end())
         .and(warp::body::content_length_limit(1024))
         .and(warp::body::json())
-        .and(warp::any().map(move || db_pool.clone()))
+        .and(warp::any().map(move || validate_db.clone()))
         .then(validate_kindle_email)
         .map(map_result);
-    register_email_filter.or(validate_email_filter)
+    let add_po_db = db_pool.clone();
+    let register_pushover_filter = warp::post()
+        .and(warp::path("delivery_methods"))
+        .and(warp::path("pushover"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024))
+        .and(warp::body::json())
+        .and(warp::any().map(move || add_po_db.clone()))
+        .then(register_pushover_key)
+        .map(map_result);
+    let validate_pushover_filter = warp::post()
+        .and(warp::path("delivery_methods"))
+        .and(warp::path("pushover"))
+        .and(warp::path("validate"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024))
+        .and(warp::body::json())
+        .and(warp::any().map(move || db_pool.clone()))
+        .then(validate_pushover_key)
+        .map(map_result);
+    register_email_filter
+        .or(validate_email_filter)
+        .or(register_pushover_filter)
+        .or(validate_pushover_filter)
 }
 
 fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
@@ -64,6 +91,12 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
                     StatusCode::BAD_REQUEST,
                     ErrorMessage {
                         message: "Email address must be a kindle.com address.".into(),
+                    },
+                ),
+                Error::NoPushoverKeyError => (
+                    StatusCode::BAD_REQUEST,
+                    ErrorMessage {
+                        message: "Failed to send to pushover key.".into(),
                     },
                 ),
             };
