@@ -1,3 +1,4 @@
+use chrono::Utc;
 use diesel::BelongingToDsl;
 use diesel::ExpressionMethods;
 use diesel::JoinOnDsl;
@@ -111,19 +112,26 @@ async fn check_for_new_chapters(pool: Pool<PgConnectionManager>) -> Result<Vec<C
     for book in books_to_check {
         match book.metadata {
             BookKind::RoyalRoad { id: check_book_id } => {
+                let newest_chapter_publish_time = Chapter::belonging_to(&book)
+                    .order_by(published_at.desc())
+                    .first::<Chapter>(&conn)
+                    .optional()?
+                    .map(|x| x.published_at)
+                    .unwrap_or(chrono::MIN_DATETIME);
+                info!(
+                    "Looking for chapters newer than {} for book {:?}",
+                    newest_chapter_publish_time, book
+                );
                 let rss_chapters: Vec<NewChapter> =
                     royalroad::get_chapters(check_book_id, book.id, &book.author)
                         .await
                         .or(Err(Error::NewChapterFetch(
                             "Failed to fetch new royalroad chapters.".into(),
                         )))?;
-                let newest_db_chapter: Chapter = Chapter::belonging_to(&book)
-                    .order_by(published_at.desc())
-                    .first(&conn)?;
                 new_chapters.append(
                     &mut (rss_chapters
                         .into_iter()
-                        .filter(|rss_chap| rss_chap.published_at > newest_db_chapter.published_at)
+                        .filter(|rss_chap| rss_chap.published_at > newest_chapter_publish_time)
                         .collect()),
                 );
             }
