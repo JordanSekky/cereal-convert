@@ -34,6 +34,7 @@ pub struct AddKindleEmailRequest {
 
 #[derive(Debug, AsChangeset, Insertable)]
 #[table_name = "delivery_methods"]
+#[changeset_options(treat_none_as_null = "true")]
 struct KindleEmailChangeset {
     user_id: String,
     kindle_email: String,
@@ -189,6 +190,7 @@ pub struct AddPushoverRequest {
 
 #[derive(Debug, AsChangeset, Insertable)]
 #[table_name = "delivery_methods"]
+#[changeset_options(treat_none_as_null = "true")]
 struct PushoverChangeset {
     user_id: String,
     pushover_key: String,
