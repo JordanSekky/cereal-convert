@@ -41,11 +41,9 @@ table! {
 }
 
 table! {
-    subscriptions (id) {
-        id -> Uuid,
+    subscriptions (user_id, book_id) {
         book_id -> Uuid,
         created_at -> Timestamptz,
-        updated_at -> Timestamptz,
         user_id -> Text,
     }
 }

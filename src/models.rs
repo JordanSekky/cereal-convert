@@ -110,16 +110,12 @@ pub struct Chapter {
     pub metadata: ChapterKind,
 }
 
-#[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]
+#[derive(Identifiable, Queryable, PartialEq, Debug, Associations, Serialize)]
 #[belongs_to(Book)]
+#[primary_key(user_id, book_id)]
 pub struct Subscription {
-    id: Uuid,
-    name: String,
-    author: String,
-    url: String,
     book_id: Uuid,
     created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
     user_id: String,
 }
 
