@@ -1,6 +1,7 @@
 use diesel::BelongingToDsl;
 use diesel::ExpressionMethods;
 use diesel::JoinOnDsl;
+use diesel::OptionalExtension;
 use diesel::QueryDsl;
 use diesel::RunQueryDsl;
 use itertools::Itertools;
@@ -53,8 +54,16 @@ async fn check_and_queue_chapters(pool: Pool<PgConnectionManager>) -> Result<(),
     let conn = pool.get().await?.into_inner();
 
     let new_chapters: Vec<Chapter> = check_for_new_chapters(pool.clone()).await?;
+    if new_chapters.is_empty() {
+        info!("No new chapters found.");
+        return Ok(());
+    }
     let new_book_ids = new_chapters.iter().map(|chap| chap.book_id).collect_vec();
     let subscribers = get_subscribers_for_books(new_book_ids, pool.clone()).await?;
+    if subscribers.is_empty() {
+        info!("No subscribers found for new chapter.");
+        return Ok(());
+    }
     let chapters_grouped_by_book = new_chapters
         .into_iter()
         .into_group_map_by(|chap| chap.book_id);
@@ -83,7 +92,7 @@ async fn check_and_queue_chapters(pool: Pool<PgConnectionManager>) -> Result<(),
             .values(&new_unsent_chapters)
             .get_results(&conn)?
     };
-    debug!(?inserted_unsent_chapters, "Added new unsent chapters.");
+    info!(?inserted_unsent_chapters, "Added new unsent chapters.");
 
     Ok(())
 }
@@ -131,10 +140,13 @@ async fn get_subscribers_for_books(
 ) -> Result<HashMap<Uuid, Vec<String>>, Error> {
     let conn = pool.get().await?.into_inner();
     use crate::schema::subscriptions::dsl::*;
+    info!(books = ?book_ids, "Fetching subscribers for books");
     Ok(subscriptions
         .select((book_id, user_id))
         .filter(book_id.eq_any(book_ids))
-        .get_results::<(Uuid, String)>(&conn)?
+        .get_results::<(Uuid, String)>(&conn)
+        .optional()?
+        .unwrap_or_else(|| Vec::with_capacity(0))
         .into_iter()
         .into_group_map())
 }
