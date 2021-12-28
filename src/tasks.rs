@@ -1,4 +1,3 @@
-use chrono::Utc;
 use diesel::BelongingToDsl;
 use diesel::ExpressionMethods;
 use diesel::JoinOnDsl;
@@ -11,7 +10,6 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::time::Duration;
 use tokio::time::MissedTickBehavior;
-use tracing::debug;
 use tracing::error;
 use tracing::info;
 use uuid::Uuid;
@@ -59,7 +57,11 @@ async fn check_and_queue_chapters(pool: Pool<PgConnectionManager>) -> Result<(),
         info!("No new chapters found.");
         return Ok(());
     }
-    let new_book_ids = new_chapters.iter().map(|chap| chap.book_id).collect_vec();
+    let new_book_ids = new_chapters
+        .iter()
+        .map(|chap| chap.book_id)
+        .unique()
+        .collect_vec();
     let subscribers = get_subscribers_for_books(new_book_ids, pool.clone()).await?;
     if subscribers.is_empty() {
         info!("No subscribers found for new chapter.");
@@ -166,6 +168,7 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
 
     loop {
         interval.tick().await;
+        info!("Checking for new unsent chapters.");
         let chaps: Vec<(UnsentChapter, Chapter, Book, DeliveryMethod)> = {
             use crate::schema::chapters;
             use crate::schema::delivery_methods;
@@ -179,6 +182,7 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
                 )
                 .load(&conn)
         }?;
+        info!("{} unsent chapters found", chaps.len());
         for (_, chapter, book, delivery_method) in chaps.into_iter() {
             if (&delivery_method).pushover_enabled
                 && (&delivery_method).pushover_key_verified
