@@ -19,6 +19,7 @@ use crate::models::NewChapter;
 use crate::models::NewUnsentChapter;
 use crate::models::UnsentChapter;
 use crate::pushover;
+use crate::schema::unsent_chapters;
 use crate::{
     connection_pool::PgConnectionManager,
     models::{Book, BookKind, Chapter},
@@ -172,7 +173,6 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
         let chaps: Vec<(UnsentChapter, Chapter, Book, DeliveryMethod)> = {
             use crate::schema::chapters;
             use crate::schema::delivery_methods;
-            use crate::schema::unsent_chapters;
             unsent_chapters::table
                 .inner_join(chapters::table.on(unsent_chapters::chapter_id.eq(chapters::id)))
                 .inner_join(books::table.on(chapters::book_id.eq(books::id)))
@@ -183,7 +183,15 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
                 .load(&conn)
         }?;
         info!("{} unsent chapters found", chaps.len());
-        for (_, chapter, book, delivery_method) in chaps.into_iter() {
+        let delete_result = diesel::delete(unsent_chapters::table).execute(&conn);
+        match delete_result {
+            Ok(_) => info!("Cleared unsent chapters table."),
+            Err(x) => {
+                error!(?x, "Failed to clear unsent chapters table.",);
+                continue;
+            }
+        }
+        for (_, chapter, book, delivery_method) in chaps.iter() {
             if (&delivery_method).pushover_enabled
                 && (&delivery_method).pushover_key_verified
                 && (&delivery_method).pushover_key.is_some()
