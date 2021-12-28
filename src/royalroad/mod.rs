@@ -238,7 +238,7 @@ async fn get_chapter_body(chapter_id: &u64) -> Result<String, Error> {
 
 pub async fn get_chapters(
     book_id: u64,
-    book_uuid: Uuid,
+    book_uuid: &Uuid,
     author: &str,
 ) -> Result<Vec<NewChapter>, Error> {
     let content = reqwest::get(format!("https://www.royalroad.com/syndication/{}", book_id))
@@ -251,7 +251,7 @@ pub async fn get_chapters(
         .iter()
         .map(|item| {
             Ok(NewChapter {
-                book_id: book_uuid,
+                book_id: book_uuid.clone(),
                 metadata: ChapterKind::RoyalRoad {
                     id: get_chapter_id_from_link(item.link())?,
                 },

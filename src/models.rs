@@ -9,7 +9,7 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow, Hash, Eq, Clone)]
 #[sql_type = "sql_types::Jsonb"]
 pub enum BookKind {
     RoyalRoad { id: u64 },
@@ -77,7 +77,7 @@ pub struct NewBook {
     pub metadata: BookKind,
 }
 
-#[derive(Identifiable, Queryable, PartialEq, Debug, Serialize)]
+#[derive(Identifiable, Queryable, PartialEq, Debug, Serialize, Hash, Eq, Clone)]
 pub struct Book {
     pub id: Uuid,
     pub name: String,
@@ -110,13 +110,13 @@ pub struct Chapter {
     pub metadata: ChapterKind,
 }
 
-#[derive(Identifiable, Queryable, PartialEq, Debug, Associations, Serialize)]
+#[derive(Identifiable, Queryable, PartialEq, Debug, Associations, Serialize, Clone)]
 #[belongs_to(Book)]
 #[primary_key(user_id, book_id)]
 pub struct Subscription {
-    book_id: Uuid,
-    created_at: DateTime<Utc>,
-    user_id: String,
+    pub book_id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub user_id: String,
 }
 
 #[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]

@@ -6,19 +6,21 @@ use diesel::QueryDsl;
 use diesel::RunQueryDsl;
 use itertools::Itertools;
 use mobc::Pool;
-use std::collections::HashMap;
 use std::fmt::Display;
 use std::time::Duration;
 use tokio::time::MissedTickBehavior;
 use tracing::error;
 use tracing::info;
-use uuid::Uuid;
 
 use crate::models::DeliveryMethod;
 use crate::models::NewChapter;
 use crate::models::NewUnsentChapter;
+use crate::models::Subscription;
 use crate::models::UnsentChapter;
 use crate::pushover;
+use crate::schema::chapters;
+use crate::schema::delivery_methods;
+use crate::schema::subscriptions;
 use crate::schema::unsent_chapters;
 use crate::{
     connection_pool::PgConnectionManager,
@@ -51,40 +53,17 @@ skip(pool),
 )]
 async fn check_and_queue_chapters(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
     info!("Checking for new chapters");
-    let conn = pool.get().await?.into_inner();
+    let book_chaps_subs = check_for_new_chapters(pool.clone()).await?;
 
-    let new_chapters: Vec<Chapter> = check_for_new_chapters(pool.clone()).await?;
-    if new_chapters.is_empty() {
-        info!("No new chapters found.");
-        return Ok(());
-    }
-    let new_book_ids = new_chapters
-        .iter()
-        .map(|chap| chap.book_id)
-        .unique()
-        .collect_vec();
-    let subscribers = get_subscribers_for_books(new_book_ids, pool.clone()).await?;
-    if subscribers.is_empty() {
-        info!("No subscribers found for new chapter.");
-        return Ok(());
-    }
-    let chapters_grouped_by_book = new_chapters
+    let new_unsent_chapters: Vec<NewUnsentChapter> = book_chaps_subs
         .into_iter()
-        .into_group_map_by(|chap| chap.book_id);
-
-    let new_unsent_chapters: Vec<NewUnsentChapter> = chapters_grouped_by_book
-        .into_iter()
-        .filter_map(|(book_id, chapters)| match subscribers.get(&book_id) {
-            Some(book_subs) => Some((chapters, book_subs)),
-            None => None,
-        })
-        .flat_map(|(chapters, book_subs)| {
-            book_subs
-                .iter()
+        .flat_map(|(book, chapters, subs)| {
+            info!("Queueing new chapter notifications for book {:?}", book);
+            subs.iter()
                 .cartesian_product(chapters.iter())
-                .map(|(user_id, chapter)| NewUnsentChapter {
+                .map(|(sub, chapter)| NewUnsentChapter {
                     chapter_id: chapter.id,
-                    user_id: user_id.clone(),
+                    user_id: sub.user_id.clone(),
                 })
                 .collect_vec()
         })
@@ -92,6 +71,7 @@ async fn check_and_queue_chapters(pool: Pool<PgConnectionManager>) -> Result<(),
 
     let inserted_unsent_chapters: Vec<UnsentChapter> = {
         use crate::schema::unsent_chapters::dsl::*;
+        let conn = pool.get().await?.into_inner();
         diesel::insert_into(unsent_chapters)
             .values(&new_unsent_chapters)
             .get_results(&conn)?
@@ -107,59 +87,67 @@ err,
 level = "info"
 skip(pool),
 )]
-async fn check_for_new_chapters(pool: Pool<PgConnectionManager>) -> Result<Vec<Chapter>, Error> {
-    let conn = pool.get().await?.into_inner();
-    let books_to_check: Vec<Book> = books::table.load(&conn)?;
-    use crate::schema::chapters::dsl::*;
-    let mut new_chapters: Vec<NewChapter> = Vec::new();
-    for book in books_to_check {
-        match book.metadata {
-            BookKind::RoyalRoad { id: check_book_id } => {
-                let newest_chapter_publish_time = Chapter::belonging_to(&book)
+async fn check_for_new_chapters(
+    pool: Pool<PgConnectionManager>,
+) -> Result<Vec<(Book, Vec<Chapter>, Vec<Subscription>)>, Error> {
+    // Fetch only books which have subscribers.
+    let subscriptions = {
+        let conn = pool.get().await?.into_inner();
+        books::table
+            .inner_join(
+                subscriptions::table.on(subscriptions::columns::book_id.eq(books::columns::id)),
+            )
+            .load::<(Book, Subscription)>(&conn)?
+            .into_iter()
+            .into_group_map()
+    };
+
+    let mut book_chaps_subs = Vec::with_capacity(subscriptions.len());
+    for (book, subs) in subscriptions.into_iter() {
+        let chaps = get_new_chapters(&book, pool.clone()).await?;
+        let conn = pool.get().await?.into_inner();
+        let chaps: Vec<Chapter> = diesel::insert_into(chapters::table)
+            .values(chaps)
+            .get_results(&conn)?;
+        book_chaps_subs.insert(book_chaps_subs.len(), (book, chaps, subs));
+    }
+
+    Ok(book_chaps_subs)
+}
+
+async fn get_new_chapters(
+    book: &Book,
+    pool: Pool<PgConnectionManager>,
+) -> Result<Vec<NewChapter>, Error> {
+    match book.metadata {
+        BookKind::RoyalRoad { id: check_book_id } => {
+            use crate::schema::chapters::dsl::*;
+            let newest_chapter_publish_time = {
+                let conn = pool.get().await?.into_inner();
+                Chapter::belonging_to(book)
                     .order_by(published_at.desc())
                     .first::<Chapter>(&conn)
                     .optional()?
                     .map(|x| x.published_at)
-                    .unwrap_or(chrono::MIN_DATETIME);
-                info!(
-                    "Looking for chapters newer than {} for book {:?}",
-                    newest_chapter_publish_time, book
-                );
-                let rss_chapters: Vec<NewChapter> =
-                    royalroad::get_chapters(check_book_id, book.id, &book.author)
-                        .await
-                        .or(Err(Error::NewChapterFetch(
-                            "Failed to fetch new royalroad chapters.".into(),
-                        )))?;
-                new_chapters.append(
-                    &mut (rss_chapters
-                        .into_iter()
-                        .filter(|rss_chap| rss_chap.published_at > newest_chapter_publish_time)
-                        .collect()),
-                );
-            }
+                    .unwrap_or(chrono::MIN_DATETIME)
+            };
+            info!(
+                "Looking for chapters newer than {} for book {:?}",
+                newest_chapter_publish_time, book
+            );
+            let rss_chapters: Vec<NewChapter> =
+                royalroad::get_chapters(check_book_id, &book.id, &book.author)
+                    .await
+                    .or(Err(Error::NewChapterFetch(
+                        "Failed to fetch new royalroad chapters.".into(),
+                    )))?;
+
+            Ok(rss_chapters
+                .into_iter()
+                .filter(|rss_chap| rss_chap.published_at > newest_chapter_publish_time)
+                .collect())
         }
     }
-    Ok(diesel::insert_into(chapters)
-        .values(&new_chapters)
-        .get_results(&conn)?)
-}
-
-async fn get_subscribers_for_books(
-    book_ids: Vec<Uuid>,
-    pool: Pool<PgConnectionManager>,
-) -> Result<HashMap<Uuid, Vec<String>>, Error> {
-    let conn = pool.get().await?.into_inner();
-    use crate::schema::subscriptions::dsl::*;
-    info!(books = ?book_ids, "Fetching subscribers for books");
-    Ok(subscriptions
-        .select((book_id, user_id))
-        .filter(book_id.eq_any(book_ids))
-        .get_results::<(Uuid, String)>(&conn)
-        .optional()?
-        .unwrap_or_else(|| Vec::with_capacity(0))
-        .into_iter()
-        .into_group_map())
 }
 
 pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
@@ -171,8 +159,6 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
         interval.tick().await;
         info!("Checking for new unsent chapters.");
         let chaps: Vec<(UnsentChapter, Chapter, Book, DeliveryMethod)> = {
-            use crate::schema::chapters;
-            use crate::schema::delivery_methods;
             unsent_chapters::table
                 .inner_join(chapters::table.on(unsent_chapters::chapter_id.eq(chapters::id)))
                 .inner_join(books::table.on(chapters::book_id.eq(books::id)))
@@ -182,6 +168,9 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
                 )
                 .load(&conn)
         }?;
+        if chaps.is_empty() {
+            continue;
+        }
         info!("{} unsent chapters found", chaps.len());
         let delete_result = diesel::delete(unsent_chapters::table).execute(&conn);
         match delete_result {
