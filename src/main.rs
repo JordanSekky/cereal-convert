@@ -13,15 +13,17 @@ mod util;
 #[macro_use]
 extern crate diesel;
 
+use derive_more::{Display, Error};
+use futures::Future;
 use tokio::signal;
-use tracing::metadata::LevelFilter;
+use tracing::{error, metadata::LevelFilter};
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, Registry};
 use warp::Filter;
 
 use crate::connection_pool::establish_connection_pool;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Error> {
     let subscriber = Registry::default() // provide underlying span data store
         .with(LevelFilter::INFO) // filter out low-level debug tracing (eg tokio executor)
         .with(tracing_opentelemetry::layer().with_tracer(honeycomb::get_honeycomb_tracer())) // publish to honeycomb backend
@@ -30,10 +32,45 @@ async fn main() {
 
     let pool = establish_connection_pool();
 
+    loop {
+        let cancel = tokio::spawn(signal::ctrl_c());
+        let server = tokio::spawn(get_server_future(&pool));
+        let check_for_new_chapters = tokio::spawn(tasks::check_new_chap_loop(pool.clone()));
+        let send_notification = tokio::spawn(tasks::send_notifications_loop(pool.clone()));
+        tokio::select! {
+        x = server => {
+            error!("API server thread failed. Restarting all threads.");
+            match x {
+                Ok(_) => error!("New chapter check returned OK. This should not be possible."),
+                Err(err) => error!(?err, "New chapter check has paniced. This should not be possible."),
+            };
+        },
+        x = check_for_new_chapters => {
+            error!("New chapter check thread failed. Restarting the thread.");
+            match x {
+                Ok(_) => error!("New chapter check returned OK. This should not be possible."),
+                Err(err) => error!(?err, "New chapter check has paniced. This should not be possible."),
+            };
+        }
+        x = send_notification => {
+            error!("Chapter notification thread failed. Restarting the thread.");
+            match x {
+                Ok(_) => error!("Chapter notification thread returned OK. This should not be possible."),
+                Err(err) => error!(?err, "Chapter notification thread returned has paniced. This should not be possible."),
+            };
+        }
+        _ = cancel => { println!("Received exit signal, exiting."); break}
+        }
+    }
+    Ok(())
+}
+
+fn get_server_future(
+    pool: &mobc::Pool<connection_pool::PgConnectionManager>,
+) -> impl Future<Output = ()> {
     let book_routes = controllers::books::get_filters(pool.clone());
     let delivery_methods_routes = controllers::delivery_methods::get_filters(pool.clone());
     let subscription_routes = controllers::subscriptions::get_filters(pool.clone());
-
     let api_server_future = warp::serve(
         book_routes
             .or(delivery_methods_routes)
@@ -41,14 +78,8 @@ async fn main() {
             .with(warp::trace::request()),
     )
     .run(([0, 0, 0, 0], 3000));
-    let cancel = tokio::spawn(signal::ctrl_c());
-    let server = tokio::spawn(api_server_future);
-    let check_for_new_chapters = tokio::spawn(tasks::check_new_chap_loop(pool.clone()));
-    let send_notification = tokio::spawn(tasks::send_notifications_loop(pool.clone()));
-    tokio::select! {
-    _ = server => 0,
-    _ = check_for_new_chapters => { println!("New chapter check thread failed. Exiting"); 255}
-    _ = send_notification => { println!("Send notification thread failed. Exiting"); 255}
-    _ = cancel => { println!("Received exit signal, exiting."); 255}
-    };
+    api_server_future
 }
+
+#[derive(Error, Display, Debug)]
+struct Error;
