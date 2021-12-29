@@ -39,7 +39,7 @@ where
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow, Hash, Eq)]
 #[sql_type = "sql_types::Jsonb"]
 pub enum ChapterKind {
     RoyalRoad { id: u64 },
@@ -97,7 +97,7 @@ pub struct NewChapter {
     pub published_at: DateTime<Utc>,
 }
 
-#[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]
+#[derive(Identifiable, Queryable, PartialEq, Debug, Associations, Hash, Eq)]
 #[belongs_to(Book)]
 pub struct Chapter {
     pub id: Uuid,
@@ -168,5 +168,15 @@ pub struct UnsentChapter {
 #[table_name = "unsent_chapters"]
 pub struct NewUnsentChapter {
     pub user_id: String,
+    pub chapter_id: Uuid,
+}
+
+#[derive(Identifiable, Queryable, PartialEq, Debug, Associations, Insertable, Hash, Eq)]
+#[table_name = "chapter_bodies"]
+#[belongs_to(Chapter)]
+#[primary_key(chapter_id)]
+pub struct ChapterBody {
+    pub key: String,
+    pub bucket: String,
     pub chapter_id: Uuid,
 }

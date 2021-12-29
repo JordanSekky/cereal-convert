@@ -10,6 +10,14 @@ table! {
 }
 
 table! {
+    chapter_bodies (chapter_id) {
+        key -> Text,
+        bucket -> Text,
+        chapter_id -> Uuid,
+    }
+}
+
+table! {
     chapters (id) {
         id -> Uuid,
         name -> Text,
@@ -57,10 +65,12 @@ table! {
     }
 }
 
+joinable!(chapter_bodies -> chapters (chapter_id));
 joinable!(unsent_chapters -> chapters (chapter_id));
 
 allow_tables_to_appear_in_same_query!(
     books,
+    chapter_bodies,
     chapters,
     delivery_methods,
     subscriptions,

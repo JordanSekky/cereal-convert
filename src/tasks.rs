@@ -16,6 +16,7 @@ use tracing::info;
 
 use crate::calibre;
 use crate::mailgun;
+use crate::models::ChapterBody;
 use crate::models::ChapterKind;
 use crate::models::DeliveryMethod;
 use crate::models::NewChapter;
@@ -23,10 +24,12 @@ use crate::models::NewUnsentChapter;
 use crate::models::Subscription;
 use crate::models::UnsentChapter;
 use crate::pushover;
+use crate::schema::chapter_bodies;
 use crate::schema::chapters;
 use crate::schema::delivery_methods;
 use crate::schema::subscriptions;
 use crate::schema::unsent_chapters;
+use crate::storage;
 use crate::{
     connection_pool::PgConnectionManager,
     models::{Book, BookKind, Chapter},
@@ -110,14 +113,43 @@ async fn check_for_new_chapters(
     let mut book_chaps_subs = Vec::with_capacity(subscriptions.len());
     for (book, subs) in subscriptions.into_iter() {
         let chaps = get_new_chapters(&book, pool.clone()).await?;
-        let conn = pool.get().await?.into_inner();
-        let chaps: Vec<Chapter> = diesel::insert_into(chapters::table)
-            .values(chaps)
-            .get_results(&conn)?;
+        let chaps: Vec<Chapter> = {
+            let conn = pool.get().await?.into_inner();
+            diesel::insert_into(chapters::table)
+                .values(chaps)
+                .get_results(&conn)?
+        };
+        let locations = fetch_chapter_bodies(&chaps, &book).await?;
+        {
+            let conn = pool.get().await?.into_inner();
+            diesel::insert_into(chapter_bodies::table)
+                .values(&locations)
+                .execute(&conn)?;
+        }
         book_chaps_subs.insert(book_chaps_subs.len(), (book, chaps, subs));
     }
 
     Ok(book_chaps_subs)
+}
+
+async fn fetch_chapter_bodies(
+    chapters: &[Chapter],
+    book: &Book,
+) -> Result<Vec<ChapterBody>, Error> {
+    let mut out = Vec::with_capacity(chapters.len());
+    for chapter in chapters {
+        match chapter.metadata {
+            ChapterKind::RoyalRoad { id } => {
+                let body = royalroad::get_chapter_body(&id).await?;
+                let title = format!("{}: {}", book.name, chapter.name);
+                let mobi_bytes =
+                    calibre::generate_mobi(".html", &body, &title, &title, &book.author).await?;
+                let location = storage::store_book(mobi_bytes, &chapter.id).await?;
+                out.insert(out.len(), location);
+            }
+        }
+    }
+    Ok(out)
 }
 
 async fn get_new_chapters(
@@ -163,9 +195,13 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
     loop {
         interval.tick().await;
         info!("Checking for new unsent chapters.");
-        let chaps: Vec<(UnsentChapter, Chapter, Book, DeliveryMethod)> = {
+        let chaps: Vec<(UnsentChapter, (Chapter, ChapterBody), Book, DeliveryMethod)> = {
             unsent_chapters::table
-                .inner_join(chapters::table.on(unsent_chapters::chapter_id.eq(chapters::id)))
+                .inner_join(
+                    chapters::table
+                        .inner_join(chapter_bodies::table)
+                        .on(unsent_chapters::chapter_id.eq(chapters::id)),
+                )
                 .inner_join(books::table.on(chapters::book_id.eq(books::id)))
                 .inner_join(
                     delivery_methods::table
@@ -185,9 +221,13 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
                 continue;
             }
         }
-        for (_, chapter, book, delivery_method) in chaps.iter() {
-            send_pushover_if_enabled(delivery_method, book, chapter).await;
-            send_kindle_if_enabled(delivery_method, book, chapter).await;
+        let grouped_by_chapter = chaps.iter().into_group_map_by(|x| &x.1);
+        for ((chapter, chapter_body), group) in grouped_by_chapter {
+            let bytes = storage::fetch_book(chapter_body).await?;
+            for (_, _, book, delivery_method) in group {
+                send_pushover_if_enabled(delivery_method, book, chapter).await;
+                send_kindle_if_enabled(delivery_method, book, chapter, &bytes).await;
+            }
         }
     }
 }
@@ -218,9 +258,14 @@ async fn send_pushover_if_enabled(
     }
 }
 
-async fn send_kindle_if_enabled(delivery_method: &DeliveryMethod, book: &Book, chapter: &Chapter) {
+async fn send_kindle_if_enabled(
+    delivery_method: &DeliveryMethod,
+    book: &Book,
+    chapter: &Chapter,
+    bytes: &[u8],
+) {
     if let Some(kindle_email) = delivery_method.get_kindle_email() {
-        let notification = send_kindle(kindle_email, book, chapter).await;
+        let notification = send_kindle(kindle_email, book, chapter, bytes).await;
         match notification {
             Ok(_) => {}
             Err(x) => error!(
@@ -233,14 +278,13 @@ async fn send_kindle_if_enabled(delivery_method: &DeliveryMethod, book: &Book, c
     }
 }
 
-async fn send_kindle(kindle_email: &str, book: &Book, chapter: &Chapter) -> Result<(), Error> {
-    let bytes = match chapter.metadata {
-        ChapterKind::RoyalRoad { id } => royalroad::get_chapter_body(&id).await?,
-    };
+async fn send_kindle(
+    kindle_email: &str,
+    book: &Book,
+    chapter: &Chapter,
+    bytes: &[u8],
+) -> Result<(), Error> {
     let subject = format!("New Chapter of {}: {}", book.name, chapter.name);
-    let cover_title = format!("{}: {}", book.name, chapter.name);
-    let bytes =
-        calibre::generate_mobi(".html", &bytes, &cover_title, &book.name, &book.author).await?;
     mailgun::send_mobi_file(&bytes, kindle_email, &chapter.name, &subject).await?;
     Ok(())
 }
@@ -260,4 +304,6 @@ pub enum Error {
     Calibre(calibre::Error),
     #[display(fmt = "Mailgun: {}", "_0")]
     Mailgun(mailgun::Error),
+    #[display(fmt = "Storage: {}", "_0")]
+    Storage(storage::Error),
 }

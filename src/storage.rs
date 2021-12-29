@@ -1,16 +1,14 @@
-use std::{error::Error, io::Read};
+pub use errors::Error;
+use uuid::Uuid;
 
 use rand::Rng;
 use rusoto_core::{credential::StaticProvider, HttpClient, Region};
 use rusoto_s3::{GetObjectRequest, PutObjectRequest, S3Client, S3};
 use std::env;
 
-pub struct StorageLocation {
-    pub key: String,
-    pub bucket: String,
-}
+use crate::models::ChapterBody;
 
-pub async fn store_book(mobi_bytes: Vec<u8>) -> Result<StorageLocation, Box<dyn Error>> {
+pub async fn store_book(mobi_bytes: Vec<u8>, chapter_id: &Uuid) -> Result<ChapterBody, Error> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
         StaticProvider::new_minimal(
@@ -36,10 +34,14 @@ pub async fn store_book(mobi_bytes: Vec<u8>) -> Result<StorageLocation, Box<dyn 
         ..Default::default()
     })
     .await?;
-    Ok(StorageLocation { key, bucket })
+    Ok(ChapterBody {
+        key,
+        bucket,
+        chapter_id: chapter_id.clone(),
+    })
 }
 
-pub async fn fetch_book(location: &StorageLocation) -> Result<Vec<u8>, Box<dyn Error>> {
+pub async fn fetch_book(location: &ChapterBody) -> Result<Vec<u8>, Error> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
         StaticProvider::new_minimal(
@@ -58,11 +60,28 @@ pub async fn fetch_book(location: &StorageLocation) -> Result<Vec<u8>, Box<dyn E
             ..Default::default()
         })
         .await?;
-    let mut bytes: Vec<u8> = Vec::new();
-    response
-        .body
-        .ok_or("File at book location had no body.")?
-        .into_blocking_read()
-        .read_to_end(&mut bytes)?;
+    let body_len_bytes = response.content_length.unwrap_or(0);
+    let body_len_bytes = usize::try_from(body_len_bytes).unwrap_or(0);
+    let bytes = match response.body {
+        Some(body) => {
+            use tokio::io::AsyncReadExt;
+            let mut out = Vec::with_capacity(body_len_bytes);
+            body.into_async_read().read_to_end(&mut out).await?;
+            out
+        }
+        None => Vec::with_capacity(0),
+    };
     Ok(bytes)
+}
+
+mod errors {
+    use derive_more::{Display, Error, From};
+
+    #[derive(Debug, Display, Error, From)]
+    pub enum Error {
+        EnvironmentCredentials(std::env::VarError),
+        PutObject(rusoto_core::RusotoError<rusoto_s3::PutObjectError>),
+        GetObject(rusoto_core::RusotoError<rusoto_s3::GetObjectError>),
+        IO(std::io::Error),
+    }
 }
