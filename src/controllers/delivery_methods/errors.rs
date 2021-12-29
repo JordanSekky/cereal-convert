@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{calibre, pushover, smtp};
+use crate::{calibre, mailgun, pushover};
 
 #[derive(Debug)]
 pub enum Error {
@@ -11,7 +11,7 @@ pub enum Error {
     NoPushoverKeyError,
     Validation(String),
     ValidationConversion(calibre::Error),
-    ValidationDelivery(smtp::Error),
+    ValidationDelivery(mailgun::Error),
 }
 
 impl Display for Error {
@@ -40,8 +40,8 @@ impl From<calibre::Error> for Error {
     }
 }
 
-impl From<smtp::Error> for Error {
-    fn from(x: smtp::Error) -> Self {
+impl From<mailgun::Error> for Error {
+    fn from(x: mailgun::Error) -> Self {
         Error::ValidationDelivery(x)
     }
 }

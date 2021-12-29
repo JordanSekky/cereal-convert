@@ -2,8 +2,6 @@ use reqwest::multipart::Part;
 use std::env;
 use uuid::Uuid;
 
-use crate::chapter::BookMeta;
-
 pub use self::errors::Error;
 
 #[derive(Debug, Clone)]
@@ -48,7 +46,7 @@ fields(
     request_id = %Uuid::new_v4(),
 )
 )]
-pub async fn send_file_smtp(message: Message) -> Result<(), Error> {
+pub async fn send_message(message: Message) -> Result<(), Error> {
     let client = reqwest::Client::new();
     let mut form = reqwest::multipart::Form::new()
         .text("to", message.to)
@@ -100,14 +98,7 @@ pub async fn send_mobi_file(
         Some(&subject),
         Some(attachment),
     );
-    send_file_smtp(message).await?;
-    Ok(())
-}
-
-pub async fn send_book(bytes: &[u8], email: &str, book: &BookMeta) -> Result<(), Error> {
-    let subject = format!("A new chapter of {}.", &book.title);
-    send_mobi_file(bytes, email, &book.title, &subject).await?;
-    Ok(())
+    send_message(message).await
 }
 
 mod errors {

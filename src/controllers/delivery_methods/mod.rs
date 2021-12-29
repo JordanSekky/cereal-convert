@@ -1,7 +1,7 @@
 mod errors;
 mod filters;
 use crate::models::DeliveryMethod;
-use crate::{calibre, pushover, smtp};
+use crate::{calibre, mailgun, pushover};
 use crate::{connection_pool::PgConnectionManager, schema::delivery_methods};
 
 use crate::schema::delivery_methods::dsl::*;
@@ -162,8 +162,8 @@ pub async fn register_kindle_email(
             .do_update()
             .set(&changeset)
             .execute(&conn)?;
-        let mobi_bytes = calibre::generate_kindle_email_validation_mobi(&code)?;
-        smtp::send_mobi_file(
+        let mobi_bytes = calibre::generate_kindle_email_validation_mobi(&code).await?;
+        mailgun::send_mobi_file(
             mobi_bytes.as_slice(),
             &request.kindle_email,
             "CerealValidation",

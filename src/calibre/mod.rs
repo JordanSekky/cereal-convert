@@ -1,11 +1,9 @@
 mod errors;
 use rand::Rng;
 use std::fs;
-use std::process::Command;
+use tokio::process::Command;
 use tracing::info;
 use uuid::Uuid;
-
-use crate::chapter::AggregateBook;
 
 pub use self::errors::Error;
 
@@ -18,7 +16,7 @@ fields(
     request_id = %Uuid::new_v4(),
 )
 )]
-pub fn generate_mobi(
+pub async fn generate_mobi(
     input_extension: &str,
     body: &str,
     cover_title: &str,
@@ -36,7 +34,7 @@ pub fn generate_mobi(
     let cover_gen_output = Command::new("calibre-debug")
         .arg("-c")
         .arg(format!("from calibre.ebooks.covers import *; open('/tmp/cover.jpg', 'wb').write(create_cover('{}', ['{}']))", cover_title, author))
-        .output()?;
+        .output().await?;
     info!(
         stdout = ?String::from_utf8_lossy(&cover_gen_output.stdout),
         stderr = ?String::from_utf8_lossy(&cover_gen_output.stderr),
@@ -58,7 +56,8 @@ pub fn generate_mobi(
         .arg(r#"/tmp/cover.jpg"#)
         .arg("--output-profile")
         .arg("kindle_oasis")
-        .output()?;
+        .output()
+        .await?;
     info!(
         stdout = ?String::from_utf8_lossy(&output.stdout),
         stderr = ?String::from_utf8_lossy(&output.stderr),
@@ -73,17 +72,9 @@ pub fn generate_mobi(
     Ok(bytes)
 }
 
-pub fn convert_to_mobi(book: &AggregateBook) -> Result<Vec<u8>, errors::Error> {
-    let cover_title = match book.chapter_titles.len() {
-        1 => book.chapter_titles[0].to_string(),
-        _ => book.chapter_titles[0].to_string() + " - " + &book.chapter_titles.last().unwrap(),
-    };
-    return generate_mobi("html", &book.body, &cover_title, &book.title, &book.author);
-}
-
-pub fn generate_kindle_email_validation_mobi(code: &str) -> Result<Vec<u8>, errors::Error> {
+pub async fn generate_kindle_email_validation_mobi(code: &str) -> Result<Vec<u8>, errors::Error> {
     let body = format!("Thank you for using cereal. To validate your kindle email address, please input the following code: {}", code);
     let title = "Cereal Kindle Email Validation Book";
 
-    return generate_mobi("txt", &body, &title, &title, "Cereal");
+    return generate_mobi("txt", &body, &title, &title, "Cereal").await;
 }

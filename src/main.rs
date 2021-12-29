@@ -1,20 +1,15 @@
-mod aggregator;
 mod calibre;
-mod chapter;
 mod connection_pool;
 mod controllers;
-mod handlers;
 mod honeycomb;
+mod mailgun;
 mod models;
 mod pushover;
 mod royalroad;
 mod schema;
-mod smtp;
 mod storage;
 mod tasks;
 mod util;
-#[macro_use]
-extern crate simple_error;
 #[macro_use]
 extern crate diesel;
 
