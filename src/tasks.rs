@@ -14,6 +14,9 @@ use tokio::time::MissedTickBehavior;
 use tracing::error;
 use tracing::info;
 
+use crate::calibre;
+use crate::mailgun;
+use crate::models::ChapterKind;
 use crate::models::DeliveryMethod;
 use crate::models::NewChapter;
 use crate::models::NewUnsentChapter;
@@ -184,6 +187,7 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
         }
         for (_, chapter, book, delivery_method) in chaps.iter() {
             send_pushover_if_enabled(delivery_method, book, chapter).await;
+            send_kindle_if_enabled(delivery_method, book, chapter).await;
         }
     }
 }
@@ -214,6 +218,33 @@ async fn send_pushover_if_enabled(
     }
 }
 
+async fn send_kindle_if_enabled(delivery_method: &DeliveryMethod, book: &Book, chapter: &Chapter) {
+    if let Some(kindle_email) = delivery_method.get_kindle_email() {
+        let notification = send_kindle(kindle_email, book, chapter).await;
+        match notification {
+            Ok(_) => {}
+            Err(x) => error!(
+                ?x,
+                "Failed to deliver notification for chapter {:?} and delivery_method {:?}",
+                chapter,
+                delivery_method
+            ),
+        }
+    }
+}
+
+async fn send_kindle(kindle_email: &str, book: &Book, chapter: &Chapter) -> Result<(), Error> {
+    let bytes = match chapter.metadata {
+        ChapterKind::RoyalRoad { id } => royalroad::get_chapter_body(&id).await?,
+    };
+    let subject = format!("New Chapter of {}: {}", book.name, chapter.name);
+    let cover_title = format!("{}: {}", book.name, chapter.name);
+    let bytes =
+        calibre::generate_mobi(".html", &bytes, &cover_title, &book.name, &book.author).await?;
+    mailgun::send_mobi_file(&bytes, kindle_email, &chapter.name, &subject).await?;
+    Ok(())
+}
+
 #[derive(Debug, Display, From, Error)]
 #[display(fmt = "Tasks Error: {}")]
 pub enum Error {
@@ -223,4 +254,10 @@ pub enum Error {
     QueryResult(diesel::result::Error),
     #[display(fmt = "NewChapterFetch: {}", "_0")]
     NewChapterFetch(#[error(not(source))] String),
+    #[display(fmt = "RoyalRoad: {}", "_0")]
+    RoyalRoad(royalroad::Error),
+    #[display(fmt = "Calibre: {}", "_0")]
+    Calibre(calibre::Error),
+    #[display(fmt = "Mailgun: {}", "_0")]
+    Mailgun(mailgun::Error),
 }

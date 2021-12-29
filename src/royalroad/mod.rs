@@ -123,7 +123,7 @@ async fn fetch_book_meta(book_id: u64) -> Result<RoyalRoadBook, Error> {
     })
 }
 
-async fn get_chapter_body(chapter_id: &u64) -> Result<String, Error> {
+pub async fn get_chapter_body(chapter_id: &u64) -> Result<String, Error> {
     let link = format!("https://www.royalroad.com/fiction/chapter/{}", chapter_id);
     let res = reqwest::get(&link).await?.text().await?;
     let doc = Html::parse_document(&res);
