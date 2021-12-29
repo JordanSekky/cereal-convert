@@ -33,3 +33,4 @@ mobc = "0.7.3"
 addr = { version = "0.15.2", default-features = false, features= ['std', 'psl'] }
 rss = "2.0.0"
 itertools = "0.10.3"
+derive_more = "0.99.17"

@@ -1,3 +1,6 @@
+use derive_more::Display;
+use derive_more::Error;
+use derive_more::From;
 use diesel::BelongingToDsl;
 use diesel::ExpressionMethods;
 use diesel::JoinOnDsl;
@@ -6,7 +9,6 @@ use diesel::QueryDsl;
 use diesel::RunQueryDsl;
 use itertools::Itertools;
 use mobc::Pool;
-use std::fmt::Display;
 use std::time::Duration;
 use tokio::time::MissedTickBehavior;
 use tracing::error;
@@ -181,55 +183,44 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
             }
         }
         for (_, chapter, book, delivery_method) in chaps.iter() {
-            if (&delivery_method).pushover_enabled
-                && (&delivery_method).pushover_key_verified
-                && (&delivery_method).pushover_key.is_some()
-            {
-                let notification = pushover::send_message(
-                    (&delivery_method).pushover_key.clone().unwrap().as_str(),
-                    &format!(
-                        "A new chapter of {} by {} has been released: {}",
-                        book.name, book.author, chapter.name,
-                    ),
-                )
-                .await;
-                match notification {
-                    Ok(_) => {}
-                    Err(x) => error!(
-                        ?x,
-                        "Failed to deliver notification for chapter {:?} and delivery_method {:?}",
-                        chapter,
-                        delivery_method
-                    ),
-                }
-            }
+            send_pushover_if_enabled(delivery_method, book, chapter).await;
         }
     }
 }
 
-#[derive(Debug)]
+async fn send_pushover_if_enabled(
+    delivery_method: &DeliveryMethod,
+    book: &Book,
+    chapter: &Chapter,
+) {
+    if let Some(pushover_key) = delivery_method.get_pushover_key() {
+        let notification = pushover::send_message(
+            pushover_key,
+            &format!(
+                "A new chapter of {} by {} has been released: {}",
+                book.name, book.author, chapter.name,
+            ),
+        )
+        .await;
+        match notification {
+            Ok(_) => {}
+            Err(x) => error!(
+                ?x,
+                "Failed to deliver notification for chapter {:?} and delivery_method {:?}",
+                chapter,
+                delivery_method
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Display, From, Error)]
+#[display(fmt = "Tasks Error: {}")]
 pub enum Error {
+    #[display(fmt = "EstablishConnection: {}", "_0")]
     EstablishConnection(mobc::Error<diesel::ConnectionError>),
+    #[display(fmt = "QueryResult: {}", "_0")]
     QueryResult(diesel::result::Error),
-    NewChapterFetch(String),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{:?}", self))
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl From<mobc::Error<diesel::ConnectionError>> for Error {
-    fn from(x: mobc::Error<diesel::ConnectionError>) -> Self {
-        Error::EstablishConnection(x)
-    }
-}
-
-impl From<diesel::result::Error> for Error {
-    fn from(x: diesel::result::Error) -> Self {
-        Error::QueryResult(x)
-    }
+    #[display(fmt = "NewChapterFetch: {}", "_0")]
+    NewChapterFetch(#[error(not(source))] String),
 }

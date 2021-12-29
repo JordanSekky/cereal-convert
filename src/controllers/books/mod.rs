@@ -113,33 +113,27 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
     match result {
         Ok(x) => reply::with_status(reply::json(&x), StatusCode::OK),
         Err(err) => {
-            let internal_server_error = (
+            let internal_server_error: (StatusCode, ErrorMessage) = (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                ErrorMessage {
-                    message: String::from("An internal exception occurred."),
-                },
+                "An internal exception occurred.".into(),
             );
             let (status, body) = match err {
                 Error::EstablishConnection(_) => internal_server_error,
                 Error::QueryResult(_) => internal_server_error,
                 Error::RoyalRoadError(royalroad::Error::UrlParseError(_)) => (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    ErrorMessage {
-                        message: String::from("Provide a valid url."),
-                    },
+                    "Provide a valid url.".into(),
                 ),
                 Error::RoyalRoadError(royalroad::Error::UrlError(_)) => (
                     StatusCode::BAD_REQUEST,
-                    ErrorMessage {
-                        message: String::from("Provide a url to a royalroad book."),
-                    },
+                    "Provide a url to a royalroad book.".into(),
                 ),
                 Error::RoyalRoadError(royalroad::Error::WebParseError(_)) => internal_server_error,
                 Error::RoyalRoadError(royalroad::Error::ReqwestError(_)) => internal_server_error,
                 Error::RoyalRoadError(_) => internal_server_error,
             };
             error!(
-                "Returning error body: {}, StatusCode: {}, Source: {:?}",
+                "Returning error body: {}, StatusCode: {}, Source: {}",
                 serde_json::to_string(&body).expect("Failed to serialize outgoing message body."),
                 status,
                 err

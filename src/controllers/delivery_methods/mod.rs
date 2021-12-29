@@ -83,7 +83,7 @@ pub async fn validate_kindle_email(
                         user_id: request.user_id.clone(),
                         kindle_email: delivery_method
                             .kindle_email
-                            .ok_or(Error::NotKindleEmailError)?
+                            .ok_or(Error::NotKindleEmail)?
                             .clone(),
                         kindle_email_enabled: true,
                         kindle_email_verified: true,
@@ -128,9 +128,9 @@ pub async fn register_kindle_email(
     match email.host() {
         addr::email::Host::Domain(hostname) => match hostname.as_str() {
             "kindle.com" => (),
-            _ => return Err(Error::NotKindleEmailError),
+            _ => return Err(Error::NotKindleEmail),
         },
-        addr::email::Host::IpAddr(_) => return Err(Error::EmailParseError),
+        addr::email::Host::IpAddr(_) => return Err(Error::NotKindleEmail),
     }
 
     let conn = db_pool
@@ -239,7 +239,7 @@ pub async fn validate_pushover_key(
                         user_id: request.user_id.clone(),
                         pushover_key: delivery_method
                             .pushover_key
-                            .ok_or(Error::NoPushoverKeyError)?
+                            .ok_or(Error::NoPushoverKey)?
                             .clone(),
                         pushover_enabled: true,
                         pushover_key_verified: true,

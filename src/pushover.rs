@@ -19,34 +19,21 @@ pub async fn send_message(user_code: &str, message: &str) -> Result<(), Error> {
         .post("https://api.pushover.net/1/messages.json")
         .json(&map)
         .send()
-        .await?;
-
-    if !response.status().is_success() {
-        return Err(Error::NotificationServiceFailure(response.status()));
+        .await?
+        .error_for_status();
+    match response {
+        Ok(_) => Ok(()),
+        Err(status) => Err(Error::NotificationServiceFailure(status)),
     }
-    Ok(())
 }
 
 mod errors {
-    use std::fmt::Display;
+    use derive_more::{Display, Error, From};
 
-    #[derive(Debug)]
+    #[derive(Debug, Display, From, Error)]
     pub enum Error {
-        NotificationServiceFailure(reqwest::StatusCode),
+        #[from(ignore)]
+        NotificationServiceFailure(reqwest::Error),
         RequestFailure(reqwest::Error),
-    }
-
-    impl Display for Error {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_fmt(format_args!("{:?}", self))
-        }
-    }
-
-    impl std::error::Error for Error {}
-
-    impl From<reqwest::Error> for Error {
-        fn from(x: reqwest::Error) -> Self {
-            Error::RequestFailure(x)
-        }
     }
 }

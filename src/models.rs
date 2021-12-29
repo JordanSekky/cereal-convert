@@ -137,6 +137,24 @@ pub struct DeliveryMethod {
     pub pushover_verification_code: Option<String>,
 }
 
+impl DeliveryMethod {
+    pub fn get_pushover_key(&self) -> &Option<String> {
+        if self.pushover_enabled && self.pushover_key_verified {
+            &self.pushover_key
+        } else {
+            &None
+        }
+    }
+
+    pub fn get_kindle_email(&self) -> &Option<String> {
+        if self.kindle_email_enabled && self.kindle_email_verified {
+            &self.kindle_email
+        } else {
+            &None
+        }
+    }
+}
+
 #[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]
 #[belongs_to(Chapter)]
 pub struct UnsentChapter {

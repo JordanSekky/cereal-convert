@@ -34,14 +34,14 @@ pub fn get_filters(
         .and(warp::any().map(move || validate_db.clone()))
         .then(validate_kindle_email)
         .map(map_result);
-    let add_po_db = db_pool.clone();
+    let add_pool_db = db_pool.clone();
     let register_pushover_filter = warp::post()
         .and(warp::path("delivery_methods"))
         .and(warp::path("pushover"))
         .and(warp::path::end())
         .and(warp::body::content_length_limit(1024))
         .and(warp::body::json())
-        .and(warp::any().map(move || add_po_db.clone()))
+        .and(warp::any().map(move || add_pool_db.clone()))
         .then(register_pushover_key)
         .map(map_result);
     let validate_pushover_filter = warp::post()
@@ -64,45 +64,33 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
     match result {
         Ok(x) => reply::with_status(reply::json(&x), StatusCode::OK),
         Err(err) => {
-            let internal_server_error = (
+            let internal_server_error: (StatusCode, ErrorMessage) = (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                ErrorMessage {
-                    message: String::from("An internal exception occurred."),
-                },
+                "An internal exception occurred.".into(),
             );
             let (status, body) = match &err {
                 Error::EstablishConnection(_) => internal_server_error,
                 Error::QueryResult(_) => internal_server_error,
-                Error::Validation(x) => (
-                    StatusCode::BAD_REQUEST,
-                    ErrorMessage {
-                        message: format!("Validation Error: {}", x),
-                    },
-                ),
                 Error::ValidationConversion(_) => internal_server_error,
                 Error::ValidationDelivery(_) => internal_server_error,
-                Error::EmailParseError => (
+                Error::Validation(_) => internal_server_error,
+                Error::EmailParse(_) => (
                     StatusCode::BAD_REQUEST,
-                    ErrorMessage {
-                        message: "Failed to parse kindle email.".into(),
-                    },
+                    "Failed to parse kindle email.".into(),
                 ),
-                Error::NotKindleEmailError => (
+                Error::NotKindleEmail => (
                     StatusCode::BAD_REQUEST,
-                    ErrorMessage {
-                        message: "Email address must be a kindle.com address.".into(),
-                    },
+                    "Email address must be a kindle.com address.".into(),
                 ),
-                Error::NoPushoverKeyError => (
-                    StatusCode::BAD_REQUEST,
-                    ErrorMessage {
-                        message: "Failed to send to pushover key.".into(),
-                    },
+                Error::NoPushoverKey => (StatusCode::BAD_REQUEST, "No pushover key found.".into()),
+                Error::PushoverDelivery(_) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to send pushover notification.".into(),
                 ),
             };
 
             error!(
-                "Returning error body: {}, StatusCode: {}, Source: {:?}",
+                "Returning error body: {}, StatusCode: {}, Source: {}",
                 serde_json::to_string(&body).expect("Failed to serialize outgoing message body."),
                 status,
                 &err
