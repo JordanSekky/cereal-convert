@@ -14,21 +14,15 @@ mod util;
 extern crate diesel;
 
 use derive_more::{Display, Error};
-use futures::Future;
 use tokio::signal;
-use tracing::{error, metadata::LevelFilter};
-use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, Registry};
-use warp::Filter;
+use tracing::error;
 
-use crate::connection_pool::establish_connection_pool;
+use crate::{connection_pool::establish_connection_pool, controllers::get_server_future};
+use util::configure_tracing;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let subscriber = Registry::default() // provide underlying span data store
-        .with(LevelFilter::INFO) // filter out low-level debug tracing (eg tokio executor)
-        .with(tracing_opentelemetry::layer().with_tracer(honeycomb::get_honeycomb_tracer())) // publish to honeycomb backend
-        .with(tracing_subscriber::fmt::Layer::default()); // log to stdout
-    tracing::subscriber::set_global_default(subscriber).unwrap();
+    configure_tracing();
 
     let pool = establish_connection_pool();
 
@@ -72,22 +66,6 @@ async fn main() -> Result<(), Error> {
         }
     }
     Ok(())
-}
-
-fn get_server_future(
-    pool: &mobc::Pool<connection_pool::PgConnectionManager>,
-) -> impl Future<Output = ()> {
-    let book_routes = controllers::books::get_filters(pool.clone());
-    let delivery_methods_routes = controllers::delivery_methods::get_filters(pool.clone());
-    let subscription_routes = controllers::subscriptions::get_filters(pool.clone());
-    let api_server_future = warp::serve(
-        book_routes
-            .or(delivery_methods_routes)
-            .or(subscription_routes)
-            .with(warp::trace::request()),
-    )
-    .run(([0, 0, 0, 0], 3000));
-    api_server_future
 }
 
 #[derive(Error, Display, Debug)]
