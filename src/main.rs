@@ -5,6 +5,7 @@ mod honeycomb;
 mod mailgun;
 mod models;
 mod pushover;
+mod rate_limit;
 mod royalroad;
 mod schema;
 mod storage;
