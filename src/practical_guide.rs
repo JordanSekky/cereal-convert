@@ -8,14 +8,14 @@ use crate::models::{BookKind, ChapterKind, NewBook, NewChapter};
 
 pub fn get_book() -> NewBook {
     NewBook {
-        name: "Pale".into(),
-        author: "Wildbow".into(),
-        metadata: BookKind::Pale,
+        name: "A Practical Guide To Evil".into(),
+        author: "erraticerrata".into(),
+        metadata: BookKind::APracticalGuideToEvil,
     }
 }
 
 pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>, Error> {
-    let content = reqwest::get("https://palewebserial.wordpress.com/feed/")
+    let content = reqwest::get("https://practicalguidetoevil.wordpress.com/feed/")
         .await?
         .bytes()
         .await?;
@@ -26,7 +26,7 @@ pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>, Error> {
         .map(|item| {
             Ok(NewChapter {
                 book_id: book_uuid.clone(),
-                metadata: ChapterKind::Pale {
+                metadata: ChapterKind::APracticalGuideToEvil {
                     url: item
                         .link()
                         .ok_or(Error::RssContentsError(
@@ -34,11 +34,11 @@ pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>, Error> {
                         ))?
                         .into(),
                 },
-                author: "Wildbow".into(),
+                author: "erraticerrata".into(),
                 name: item
                     .title()
                     .ok_or(Error::RssContentsError(
-                        "No valid pale chapter title in RSS Item.".into(),
+                        "No valid practical guide chapter title in RSS Item.".into(),
                     ))?
                     .into(),
                 published_at: parse_from_rfc2822(item.pub_date())?,
@@ -81,7 +81,7 @@ pub async fn get_chapter_body(link: &str) -> Result<String, Error> {
 use derive_more::{Display, Error, From};
 
 #[derive(Debug, Display, From, Error)]
-#[display(fmt = "Pale Error: {}")]
+#[display(fmt = "A Practical Guide To Evil Error: {}")]
 pub enum Error {
     UrlParseError(url::ParseError),
     ReqwestError(reqwest::Error),
@@ -99,12 +99,12 @@ pub enum Error {
 
 pub fn try_parse_url(url: &str) -> Result<(), Error> {
     let request_url = Url::parse(url)?;
-    let valid_host = "palewebserial.wordpress.com";
+    let valid_host = "practicalguidetoevil.wordpress.com";
     match request_url.host_str() {
         Some(host) => {
             if valid_host != host {
                 return Err(Error::UrlError(String::from(
-                    "Provided hostname is not palewebserial.wordpress.com.",
+                    "Provided hostname is not practicalguidetoevil.wordpress.com",
                 )));
             };
         }

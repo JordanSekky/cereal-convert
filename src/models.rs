@@ -1,5 +1,5 @@
 use crate::{
-    pale,
+    pale, practical_guide,
     royalroad::{self, RoyalRoadBookKind},
     schema::*,
 };
@@ -31,6 +31,7 @@ use uuid::Uuid;
 pub enum BookKind {
     RoyalRoad(RoyalRoadBookKind),
     Pale,
+    APracticalGuideToEvil,
 }
 
 #[derive(From, Error, Debug, Display)]
@@ -43,6 +44,7 @@ impl BookKind {
         match self {
             BookKind::RoyalRoad(x) => Ok(royalroad::as_new_book(x).await?),
             BookKind::Pale => Ok(pale::get_book()),
+            BookKind::APracticalGuideToEvil => Ok(practical_guide::get_book()),
         }
     }
 }
@@ -76,6 +78,7 @@ where
 pub enum ChapterKind {
     RoyalRoad { id: u64 },
     Pale { url: String },
+    APracticalGuideToEvil { url: String },
 }
 
 impl<DB> ToSql<sql_types::Jsonb, DB> for ChapterKind

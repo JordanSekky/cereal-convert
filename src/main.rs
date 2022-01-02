@@ -5,6 +5,7 @@ mod honeycomb;
 mod mailgun;
 mod models;
 mod pale;
+mod practical_guide;
 mod pushover;
 mod rate_limit;
 mod royalroad;

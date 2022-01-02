@@ -24,6 +24,7 @@ use crate::models::NewUnsentChapter;
 use crate::models::Subscription;
 use crate::models::UnsentChapter;
 use crate::pale;
+use crate::practical_guide;
 use crate::pushover;
 use crate::royalroad::RoyalRoadBookKind;
 use crate::schema::chapter_bodies;
@@ -143,6 +144,9 @@ async fn fetch_chapter_bodies(
         let body = match &chapter.metadata {
             ChapterKind::RoyalRoad { id } => royalroad::get_chapter_body(&id).await?,
             ChapterKind::Pale { url } => pale::get_chapter_body(&url).await?,
+            ChapterKind::APracticalGuideToEvil { url } => {
+                practical_guide::get_chapter_body(&url).await?
+            }
         };
         let title = format!("{}: {}", book.name, chapter.name);
         let mobi_bytes =
@@ -170,6 +174,13 @@ async fn get_new_chapters(
             .or(Err(Error::NewChapterFetch(
                 "Failed to fetch new pale chapters.".into(),
             )))?,
+        BookKind::APracticalGuideToEvil => {
+            practical_guide::get_chapters(&book.id)
+                .await
+                .or(Err(Error::NewChapterFetch(
+                    "Failed to fetch new A Practical Guide To Evil chapters.".into(),
+                )))?
+        }
     };
     let newest_chapter_publish_time = {
         use crate::schema::chapters::dsl::*;
@@ -307,6 +318,8 @@ pub enum Error {
     RoyalRoad(royalroad::Error),
     #[display(fmt = "Pale: {}", "_0")]
     Pale(pale::Error),
+    #[display(fmt = "A Practical Guide To Evil: {}", "_0")]
+    APracticalGuideToEvil(practical_guide::Error),
     #[display(fmt = "Calibre: {}", "_0")]
     Calibre(calibre::Error),
     #[display(fmt = "Mailgun: {}", "_0")]
