@@ -33,6 +33,7 @@ use crate::schema::delivery_methods;
 use crate::schema::subscriptions;
 use crate::schema::unsent_chapters;
 use crate::storage;
+use crate::wandering_inn;
 use crate::{
     connection_pool::PgConnectionManager,
     models::{Book, BookKind, Chapter},
@@ -147,6 +148,7 @@ async fn fetch_chapter_bodies(
             ChapterKind::APracticalGuideToEvil { url } => {
                 practical_guide::get_chapter_body(&url).await?
             }
+            ChapterKind::TheWanderingInn { url } => wandering_inn::get_chapter_body(&url).await?,
         };
         let title = format!("{}: {}", book.name, chapter.name);
         let mobi_bytes =
@@ -179,6 +181,13 @@ async fn get_new_chapters(
                 .await
                 .or(Err(Error::NewChapterFetch(
                     "Failed to fetch new A Practical Guide To Evil chapters.".into(),
+                )))?
+        }
+        BookKind::TheWanderingInn => {
+            wandering_inn::get_chapters(&book.id)
+                .await
+                .or(Err(Error::NewChapterFetch(
+                    "Failed to fetch new The Wandering Inn chapters.".into(),
                 )))?
         }
     };
@@ -320,6 +329,8 @@ pub enum Error {
     Pale(pale::Error),
     #[display(fmt = "A Practical Guide To Evil: {}", "_0")]
     APracticalGuideToEvil(practical_guide::Error),
+    #[display(fmt = "Wandering Inn: {}", "_0")]
+    WanderingInn(wandering_inn::Error),
     #[display(fmt = "Calibre: {}", "_0")]
     Calibre(calibre::Error),
     #[display(fmt = "Mailgun: {}", "_0")]

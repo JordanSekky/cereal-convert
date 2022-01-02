@@ -7,7 +7,7 @@ use crate::{
 pub use errors::Error;
 
 use crate::util::ErrorMessage;
-use crate::{pale, practical_guide, royalroad};
+use crate::{pale, practical_guide, royalroad, wandering_inn};
 use diesel::{QueryDsl, RunQueryDsl};
 use mobc::Pool;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,9 @@ fn get_book_metadata(url: &str) -> Result<BookKind, Error> {
     }
     if let Ok(()) = practical_guide::try_parse_url(url) {
         return Ok(BookKind::APracticalGuideToEvil);
+    }
+    if let Ok(()) = wandering_inn::try_parse_url(url) {
+        return Ok(BookKind::TheWanderingInn);
     }
     Err(Error::MetadataParse(
         "Failed to parse url into book metadata.".into(),

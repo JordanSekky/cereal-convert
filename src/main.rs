@@ -13,6 +13,7 @@ mod schema;
 mod storage;
 mod tasks;
 mod util;
+mod wandering_inn;
 #[macro_use]
 extern crate diesel;
 

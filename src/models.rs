@@ -2,6 +2,7 @@ use crate::{
     pale, practical_guide,
     royalroad::{self, RoyalRoadBookKind},
     schema::*,
+    wandering_inn,
 };
 
 use chrono::{DateTime, Utc};
@@ -32,6 +33,7 @@ pub enum BookKind {
     RoyalRoad(RoyalRoadBookKind),
     Pale,
     APracticalGuideToEvil,
+    TheWanderingInn,
 }
 
 #[derive(From, Error, Debug, Display)]
@@ -45,6 +47,7 @@ impl BookKind {
             BookKind::RoyalRoad(x) => Ok(royalroad::as_new_book(x).await?),
             BookKind::Pale => Ok(pale::get_book()),
             BookKind::APracticalGuideToEvil => Ok(practical_guide::get_book()),
+            BookKind::TheWanderingInn => Ok(wandering_inn::get_book()),
         }
     }
 }
@@ -79,6 +82,7 @@ pub enum ChapterKind {
     RoyalRoad { id: u64 },
     Pale { url: String },
     APracticalGuideToEvil { url: String },
+    TheWanderingInn { url: String },
 }
 
 impl<DB> ToSql<sql_types::Jsonb, DB> for ChapterKind
