@@ -9,6 +9,7 @@ use crate::models::NewChapter;
 
 use chrono::Utc;
 pub use error::Error;
+use rss::Item;
 use scraper::{Html, Selector};
 use serde::Deserialize;
 use serde::Serialize;
@@ -147,16 +148,23 @@ pub async fn get_chapters(
                     id: get_chapter_id_from_link(item.link())?,
                 },
                 author: author.into(),
-                name: item
-                    .title()
-                    .ok_or(Error::RssContentsError(
-                        "No valid royalroad chapter title in RSS Item.".into(),
-                    ))?
-                    .into(),
+                name: get_chapter_title_from_rss(item, &channel.title())?,
                 published_at: get_published_at(item.pub_date())?,
             })
         })
         .collect()
+}
+
+fn get_chapter_title_from_rss(item: &Item, channel_title: &str) -> Result<String, Error> {
+    let rss_item_title = item.title().ok_or(Error::RssContentsError(
+        "No valid royalroad chapter title in RSS Item.".into(),
+    ))?;
+    if let Some((_book_title, chapter_title)) =
+        rss_item_title.split_once(&format!("{} - ", channel_title))
+    {
+        return Ok(chapter_title.trim().into());
+    }
+    return Ok(rss_item_title.into());
 }
 
 fn get_chapter_id_from_link(link: Option<&str>) -> Result<u64, Error> {
