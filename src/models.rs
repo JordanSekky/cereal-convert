@@ -1,6 +1,11 @@
-use crate::schema::*;
+use crate::{
+    pale,
+    royalroad::{self, RoyalRoadBookKind},
+    schema::*,
+};
 
 use chrono::{DateTime, Utc};
+use derive_more::{Display, Error, From, IsVariant, Unwrap};
 use diesel::{
     sql_types::{self},
     types::{FromSql, ToSql},
@@ -9,10 +14,37 @@ use diesel::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow, Hash, Eq, Clone)]
+#[derive(
+    Debug,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    Hash,
+    Eq,
+    Clone,
+    IsVariant,
+    Unwrap,
+)]
 #[sql_type = "sql_types::Jsonb"]
 pub enum BookKind {
-    RoyalRoad { id: u64 },
+    RoyalRoad(RoyalRoadBookKind),
+    Pale,
+}
+
+#[derive(From, Error, Debug, Display)]
+pub enum BookKindToNewBookError {
+    RoyalRoad(royalroad::Error),
+}
+
+impl BookKind {
+    pub async fn to_new_book(&self) -> Result<NewBook, BookKindToNewBookError> {
+        match self {
+            BookKind::RoyalRoad(x) => Ok(royalroad::as_new_book(x).await?),
+            BookKind::Pale => Ok(pale::get_book()),
+        }
+    }
 }
 
 impl<DB> ToSql<sql_types::Jsonb, DB> for BookKind
@@ -43,6 +75,7 @@ where
 #[sql_type = "sql_types::Jsonb"]
 pub enum ChapterKind {
     RoyalRoad { id: u64 },
+    Pale { url: String },
 }
 
 impl<DB> ToSql<sql_types::Jsonb, DB> for ChapterKind

@@ -23,7 +23,9 @@ use crate::models::NewChapter;
 use crate::models::NewUnsentChapter;
 use crate::models::Subscription;
 use crate::models::UnsentChapter;
+use crate::pale;
 use crate::pushover;
+use crate::royalroad::RoyalRoadBookKind;
 use crate::schema::chapter_bodies;
 use crate::schema::chapters;
 use crate::schema::delivery_methods;
@@ -138,16 +140,15 @@ async fn fetch_chapter_bodies(
 ) -> Result<Vec<ChapterBody>, Error> {
     let mut out = Vec::with_capacity(chapters.len());
     for chapter in chapters {
-        match chapter.metadata {
-            ChapterKind::RoyalRoad { id } => {
-                let body = royalroad::get_chapter_body(&id).await?;
-                let title = format!("{}: {}", book.name, chapter.name);
-                let mobi_bytes =
-                    calibre::generate_mobi(".html", &body, &title, &title, &book.author).await?;
-                let location = storage::store_book(mobi_bytes, &chapter.id).await?;
-                out.insert(out.len(), location);
-            }
-        }
+        let body = match &chapter.metadata {
+            ChapterKind::RoyalRoad { id } => royalroad::get_chapter_body(&id).await?,
+            ChapterKind::Pale { url } => pale::get_chapter_body(&url).await?,
+        };
+        let title = format!("{}: {}", book.name, chapter.name);
+        let mobi_bytes =
+            calibre::generate_mobi(".html", &body, &title, &title, &book.author).await?;
+        let location = storage::store_book(mobi_bytes, &chapter.id).await?;
+        out.insert(out.len(), location);
     }
     Ok(out)
 }
@@ -156,35 +157,39 @@ async fn get_new_chapters(
     book: &Book,
     pool: Pool<PgConnectionManager>,
 ) -> Result<Vec<NewChapter>, Error> {
-    match book.metadata {
-        BookKind::RoyalRoad { id: check_book_id } => {
-            use crate::schema::chapters::dsl::*;
-            let newest_chapter_publish_time = {
-                let conn = pool.get().await?.into_inner();
-                Chapter::belonging_to(book)
-                    .order_by(published_at.desc())
-                    .first::<Chapter>(&conn)
-                    .optional()?
-                    .map(|x| x.published_at)
-                    .unwrap_or(chrono::MIN_DATETIME)
-            };
-            info!(
-                "Looking for chapters newer than {} for book {:?}",
-                newest_chapter_publish_time, book
-            );
-            let rss_chapters: Vec<NewChapter> =
-                royalroad::get_chapters(check_book_id, &book.id, &book.author)
-                    .await
-                    .or(Err(Error::NewChapterFetch(
-                        "Failed to fetch new royalroad chapters.".into(),
-                    )))?;
-
-            Ok(rss_chapters
-                .into_iter()
-                .filter(|rss_chap| rss_chap.published_at > newest_chapter_publish_time)
-                .collect())
+    let rss_chapters = match book.metadata {
+        BookKind::RoyalRoad(RoyalRoadBookKind { id }) => {
+            royalroad::get_chapters(id, &book.id, &book.author)
+                .await
+                .or(Err(Error::NewChapterFetch(
+                    "Failed to fetch new royalroad chapters.".into(),
+                )))?
         }
-    }
+        BookKind::Pale => pale::get_chapters(&book.id)
+            .await
+            .or(Err(Error::NewChapterFetch(
+                "Failed to fetch new pale chapters.".into(),
+            )))?,
+    };
+    let newest_chapter_publish_time = {
+        use crate::schema::chapters::dsl::*;
+        let conn = pool.get().await?.into_inner();
+        Chapter::belonging_to(book)
+            .order_by(published_at.desc())
+            .first::<Chapter>(&conn)
+            .optional()?
+            .map(|x| x.published_at)
+            .unwrap_or(chrono::MIN_DATETIME)
+    };
+    info!(
+        "Looking for chapters newer than {} for book {:?}",
+        newest_chapter_publish_time, book
+    );
+
+    Ok(rss_chapters
+        .into_iter()
+        .filter(|rss_chap| rss_chap.published_at > newest_chapter_publish_time)
+        .collect())
 }
 
 pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
@@ -300,6 +305,8 @@ pub enum Error {
     NewChapterFetch(#[error(not(source))] String),
     #[display(fmt = "RoyalRoad: {}", "_0")]
     RoyalRoad(royalroad::Error),
+    #[display(fmt = "Pale: {}", "_0")]
+    Pale(pale::Error),
     #[display(fmt = "Calibre: {}", "_0")]
     Calibre(calibre::Error),
     #[display(fmt = "Mailgun: {}", "_0")]

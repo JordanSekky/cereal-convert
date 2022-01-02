@@ -6,8 +6,8 @@ use crate::{
 };
 pub use errors::Error;
 
-use crate::royalroad;
-use crate::{royalroad::RoyalRoadBook, util::ErrorMessage};
+use crate::util::ErrorMessage;
+use crate::{pale, royalroad};
 use diesel::{QueryDsl, RunQueryDsl};
 use mobc::Pool;
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,18 @@ use warp::http::StatusCode;
 use warp::{reply, Filter, Reply};
 
 use crate::schema::books::dsl::*;
+
+fn get_book_metadata(url: &str) -> Result<BookKind, Error> {
+    if let Ok(x) = royalroad::try_parse_url(url) {
+        return Ok(BookKind::RoyalRoad(x));
+    }
+    if let Ok(()) = pale::try_parse_url(url) {
+        return Ok(BookKind::Pale);
+    }
+    Err(Error::MetadataParse(
+        "Failed to parse url into book metadata.".into(),
+    ))
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CreateBookRequest {
@@ -60,7 +72,7 @@ pub async fn create_book(
     db_pool: Pool<PgConnectionManager>,
     body: CreateBookRequest,
 ) -> Result<Book, Error> {
-    let book_id = RoyalRoadBook::royalroad_book_id(&body.url)?;
+    let book_kind = get_book_metadata(&body.url)?;
     let conn = db_pool
         .get()
         .instrument(tracing::info_span!("Acquiring a DB Connection."))
@@ -69,14 +81,12 @@ pub async fn create_book(
     let db_check_span = span!(Level::INFO, "Checking if book already exists in db.");
     let existing_book: Result<Book, _> = {
         let _a = db_check_span.enter();
-        books
-            .filter(metadata.eq(BookKind::RoyalRoad { id: book_id }))
-            .first(&conn)
+        books.filter(metadata.eq(&book_kind)).first(&conn)
     };
     if let Ok(existing_book) = existing_book {
         return Ok(existing_book);
     }
-    let book = RoyalRoadBook::from_book_id(book_id).await?;
+    let book = book_kind.to_new_book().await?;
     let db_insert_span = span!(Level::INFO, "Inserting item into DB");
     let db_result: Book = {
         let _a = db_insert_span.enter();
@@ -131,6 +141,8 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
                 Error::RoyalRoadError(royalroad::Error::WebParseError(_)) => internal_server_error,
                 Error::RoyalRoadError(royalroad::Error::ReqwestError(_)) => internal_server_error,
                 Error::RoyalRoadError(_) => internal_server_error,
+                Error::MetadataParse(_) => internal_server_error,
+                Error::GatherBookMetadata(_) => internal_server_error,
             };
             error!(
                 "Returning error body: {}, StatusCode: {}, Source: {}",

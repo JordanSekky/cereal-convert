@@ -4,6 +4,7 @@ mod controllers;
 mod honeycomb;
 mod mailgun;
 mod models;
+mod pale;
 mod pushover;
 mod rate_limit;
 mod royalroad;

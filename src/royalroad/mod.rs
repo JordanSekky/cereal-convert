@@ -10,63 +10,49 @@ use crate::models::NewChapter;
 use chrono::Utc;
 pub use error::Error;
 use scraper::{Html, Selector};
+use serde::Deserialize;
+use serde::Serialize;
 use url::Url;
 use uuid::Uuid;
 
 mod error;
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct RoyalRoadBook {
-    pub title: String,
-    pub author: String,
-    pub royalroad_id: u64,
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub struct RoyalRoadBookKind {
+    pub id: u64,
 }
 
-impl From<RoyalRoadBook> for NewBook {
-    fn from(b: RoyalRoadBook) -> Self {
-        return Self {
-            name: b.title,
-            author: b.author,
-            metadata: BookKind::RoyalRoad { id: b.royalroad_id },
-        };
+pub fn try_parse_url(request_url: &str) -> Result<RoyalRoadBookKind, Error> {
+    let request_url = Url::parse(request_url)?;
+    let valid_hosts = vec!["www.royalroad.com", "royalroad.com"];
+    if request_url.host_str().is_none()
+        || !valid_hosts
+            .iter()
+            .any(|v| *v == request_url.host_str().unwrap())
+    {
+        return Err(Error::UrlError(String::from(
+            "Provided hostname is not www.royalroad.com or royalroad.com.",
+        )));
     }
-}
+    let path_segments = request_url.path_segments();
+    let mut path_segments = match path_segments {
+        None => return Err(Error::UrlError(String::from("No path provided."))),
+        Some(segments) => segments,
+    };
 
-impl RoyalRoadBook {
-    pub fn royalroad_book_id(request_url: &str) -> Result<u64, Error> {
-        let request_url = Url::parse(request_url)?;
-        let valid_hosts = vec!["www.royalroad.com", "royalroad.com"];
-        if request_url.host_str().is_none()
-            || !valid_hosts
-                .iter()
-                .any(|v| *v == request_url.host_str().unwrap())
-        {
-            return Err(Error::UrlError(String::from(
-                "Provided hostname is not www.royalroad.com or royalroad.com.",
-            )));
-        }
-        let path_segments = request_url.path_segments();
-        let mut path_segments = match path_segments {
-            None => return Err(Error::UrlError(String::from("No path provided."))),
-            Some(segments) => segments,
-        };
-
-        let path_start = path_segments.next();
-        if path_start != Some("fiction") {
-            return Err(Error::UrlError(String::from(
-                "Url does not correspond to a book.",
-            )));
-        }
-        let royalroad_id: Option<u64> = path_segments.next().and_then(|id| id.parse().ok());
-        if royalroad_id.is_none() {
-            return Err(Error::UrlError("Book id not valid.".into()));
-        }
-        return Ok(royalroad_id.unwrap());
+    let path_start = path_segments.next();
+    if path_start != Some("fiction") {
+        return Err(Error::UrlError(String::from(
+            "Url does not correspond to a book.",
+        )));
     }
-
-    pub async fn from_book_id(book_id: u64) -> Result<RoyalRoadBook, Error> {
-        return fetch_book_meta(book_id).await;
+    let royalroad_id: Option<u64> = path_segments.next().and_then(|id| id.parse().ok());
+    if royalroad_id.is_none() {
+        return Err(Error::UrlError("Book id not valid.".into()));
     }
+    return Ok(RoyalRoadBookKind {
+        id: royalroad_id.unwrap(),
+    });
 }
 
 #[tracing::instrument(
@@ -77,8 +63,12 @@ fields(
     request_id = %Uuid::new_v4(),
 )
 )]
-async fn fetch_book_meta(book_id: u64) -> Result<RoyalRoadBook, Error> {
-    let link = format!("https://royalroad.com/fiction/{}", book_id);
+pub async fn as_new_book(book_meta: &RoyalRoadBookKind) -> Result<NewBook, Error> {
+    return fetch_book_meta(book_meta).await;
+}
+
+async fn fetch_book_meta(book_meta: &RoyalRoadBookKind) -> Result<NewBook, Error> {
+    let link = format!("https://royalroad.com/fiction/{}", book_meta.id);
     let html = reqwest::get(&link).await?.text().await?;
     let doc = Html::parse_document(&html);
     let title_selector = Selector::parse("div.fic-header h1").unwrap();
@@ -116,10 +106,10 @@ async fn fetch_book_meta(book_id: u64) -> Result<RoyalRoadBook, Error> {
             "Empty author element on royalroad page.".into(),
         ));
     }
-    Ok(RoyalRoadBook {
-        title,
+    Ok(NewBook {
+        name: title,
         author,
-        royalroad_id: book_id,
+        metadata: BookKind::RoyalRoad(book_meta.clone()),
     })
 }
 
