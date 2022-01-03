@@ -1,9 +1,12 @@
-use derive_more::From;
+use std::io::BufWriter;
+
+use derive_more::{Display, Error, From};
+use mobc::Pool;
 use serde::Serialize;
-use tracing::metadata::LevelFilter;
+use tracing::{error, info, metadata::LevelFilter};
 use tracing_subscriber::{prelude::*, Registry};
 
-use crate::honeycomb;
+use crate::{connection_pool::PgConnectionManager, embedded_migrations, honeycomb};
 
 #[derive(Serialize, From)]
 pub struct ErrorMessage {
@@ -23,3 +26,29 @@ pub fn configure_tracing() {
         .with(tracing_subscriber::fmt::Layer::default());
     tracing::subscriber::set_global_default(subscriber).unwrap();
 }
+
+pub async fn run_db_migrations(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
+    let conn = match pool.get().await {
+        Ok(x) => x.into_inner(),
+        Err(err) => {
+            error!(?err, "Failed to acquire db connection.");
+            return Err(Error);
+        }
+    };
+    let mut buf = BufWriter::new(Vec::new());
+    match embedded_migrations::run_with_output(&conn, &mut buf) {
+        Ok(_) => {
+            let buf = buf.into_inner().unwrap();
+            let migration_out = String::from_utf8_lossy(&buf);
+            info!(%migration_out)
+        }
+        Err(err) => {
+            error!(?err, "Failed to run db migrations.");
+            return Err(Error);
+        }
+    };
+    return Ok(());
+}
+
+#[derive(Error, Display, Debug)]
+pub struct Error;

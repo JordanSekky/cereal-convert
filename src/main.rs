@@ -22,13 +22,18 @@ use tokio::signal;
 use tracing::error;
 
 use crate::{connection_pool::establish_connection_pool, controllers::get_server_future};
+#[macro_use]
+extern crate diesel_migrations;
 use util::configure_tracing;
+
+embed_migrations!();
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     configure_tracing();
 
     let pool = establish_connection_pool();
+    util::run_db_migrations(pool.clone()).await.unwrap();
 
     let cancel = tokio::spawn(signal::ctrl_c());
     tokio::pin!(cancel);

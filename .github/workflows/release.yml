@@ -23,4 +23,5 @@ jobs:
           RUSTTARGET: ${{ matrix.target }}
           ARCHIVE_TYPES: ${{ matrix.archive }}
           PRE_BUILD: "pre_build.sh"
-          MINIFY: "true"
+      - name: Run latest-tag
+        uses: EndBug/latest-tag@latest
