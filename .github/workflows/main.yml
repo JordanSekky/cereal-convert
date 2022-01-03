@@ -16,6 +16,8 @@ jobs:
             archive: tar.gz tar.xz
     steps:
       - uses: actions/checkout@master
+      - name: Install protobuf
+        run: sudo apt-get install -y protobuf
       - name: Compile and release
         uses: rust-build/rust-build.action@latest
         env:
