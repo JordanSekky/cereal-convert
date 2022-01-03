@@ -1,3 +1,3 @@
 #! /usr/bin/env bash
 
-apk add protoc
+apk add --no-cache protoc postgresql-dev
