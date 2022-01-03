@@ -16,11 +16,11 @@ jobs:
             archive: tar.gz tar.xz
     steps:
       - uses: actions/checkout@master
-      - name: Install protobuf
-        run: sudo apt-get install -y protobuf-compiler
       - name: Compile and release
         uses: rust-build/rust-build.action@latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUSTTARGET: ${{ matrix.target }}
           ARCHIVE_TYPES: ${{ matrix.archive }}
+          PRE_BUILD: "pre_build.sh"
+          MINIFY: "true"
