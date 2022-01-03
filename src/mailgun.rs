@@ -51,7 +51,7 @@ pub async fn send_message(message: Message) -> Result<(), Error> {
     let mut form = reqwest::multipart::Form::new()
         .text("to", message.to)
         .text("subject", message.subject)
-        .text("from", "postmaster@cereal.works");
+        .text("from", "delivery@cereal.works");
     if let Some(text) = message.text {
         form = form.text("text", text)
     }
