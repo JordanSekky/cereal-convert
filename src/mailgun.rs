@@ -51,7 +51,7 @@ pub async fn send_message(message: Message) -> Result<(), Error> {
     let mut form = reqwest::multipart::Form::new()
         .text("to", message.to)
         .text("subject", message.subject)
-        .text("from", "delivery@mg.cereal.works");
+        .text("from", env::var("CEREAL_FROM_EMAIL_ADDRESS").unwrap());
     if let Some(text) = message.text {
         form = form.text("text", text)
     }
@@ -69,7 +69,7 @@ pub async fn send_message(message: Message) -> Result<(), Error> {
     let mailgun_api_key =
         env::var("CEREAL_MAILGUN_API_KEY").expect("Mailgun API key not provided.");
     let send_email_response = client
-        .post("https://api.mailgun.net/v3/mg.cereal.works/messages")
+        .post(env::var("CEREAL_MAILGUN_API_ENDPOINT").unwrap())
         .basic_auth("api", Some(mailgun_api_key))
         .multipart(form)
         .send()
