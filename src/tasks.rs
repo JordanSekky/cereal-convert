@@ -191,24 +191,28 @@ async fn get_new_chapters(
                 )))?
         }
     };
-    let newest_chapter_publish_time = {
+    if rss_chapters.is_empty() {
+        return Ok(rss_chapters);
+    }
+    let oldest_rss_chapter = rss_chapters
+        .iter()
+        .min_by(|x, y| x.published_at.cmp(&y.published_at))
+        .unwrap();
+    let existing_chapters = {
         use crate::schema::chapters::dsl::*;
         let conn = pool.get().await?.into_inner();
         Chapter::belonging_to(book)
+            .filter(published_at.ge(oldest_rss_chapter.published_at))
             .order_by(published_at.desc())
-            .first::<Chapter>(&conn)
-            .optional()?
-            .map(|x| x.published_at)
-            .unwrap_or(chrono::MIN_DATETIME)
-    };
-    info!(
-        "Looking for chapters newer than {} for book {:?}",
-        newest_chapter_publish_time, book
-    );
+            .load::<Chapter>(&conn)?
+    }
+    .into_iter()
+    .map(|chap| chap.metadata)
+    .collect_vec();
 
     Ok(rss_chapters
         .into_iter()
-        .filter(|rss_chap| rss_chap.published_at > newest_chapter_publish_time)
+        .filter(|rss_chap| !existing_chapters.contains(&rss_chap.metadata))
         .collect())
 }
 
