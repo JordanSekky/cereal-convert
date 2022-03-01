@@ -33,7 +33,7 @@ pub async fn generate_mobi(
     fs::write(&in_path, body)?;
     let cover_gen_output = Command::new("calibre-debug")
         .arg("-c")
-        .arg(format!("from calibre.ebooks.covers import *; open('/tmp/cover.jpg', 'wb').write(create_cover('{}', ['{}']))", cover_title, author))
+        .arg(format!("from calibre.ebooks.covers import *; open('/tmp/cover.jpg', 'wb').write(create_cover('{}', ['{}']))", cover_title.replace("'", "\\'").replace("\"", "\\\""), author))
         .output().await?;
     info!(
         stdout = ?String::from_utf8_lossy(&cover_gen_output.stdout),
