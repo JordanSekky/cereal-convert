@@ -4,7 +4,6 @@ use derive_more::From;
 use diesel::BelongingToDsl;
 use diesel::ExpressionMethods;
 use diesel::JoinOnDsl;
-use diesel::OptionalExtension;
 use diesel::QueryDsl;
 use diesel::RunQueryDsl;
 use itertools::Itertools;
