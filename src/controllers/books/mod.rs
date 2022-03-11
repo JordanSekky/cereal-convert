@@ -62,7 +62,7 @@ pub async fn get_book(book_id: Uuid, db_pool: Pool<PgConnectionManager>) -> Resu
         let _a = db_check_span.enter();
         books.find(book_id).first(&conn)?
     };
-    return Ok(book);
+    Ok(book)
 }
 
 #[tracing::instrument(
@@ -97,7 +97,7 @@ pub async fn create_book(
     let db_result: Book = {
         let _a = db_insert_span.enter();
         diesel::insert_into(books)
-            .values::<NewBook>(book.into())
+            .values::<NewBook>(book)
             .get_result(&conn)?
     };
     Ok(db_result)
@@ -136,17 +136,17 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
             let (status, body) = match err {
                 Error::EstablishConnection(_) => internal_server_error,
                 Error::QueryResult(_) => internal_server_error,
-                Error::RoyalRoadError(royalroad::Error::UrlParseError(_)) => (
+                Error::RoyalRoad(royalroad::Error::UrlParse(_)) => (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Provide a valid url.".into(),
                 ),
-                Error::RoyalRoadError(royalroad::Error::UrlError(_)) => (
+                Error::RoyalRoad(royalroad::Error::Url(_)) => (
                     StatusCode::BAD_REQUEST,
                     "Provide a url to a royalroad book.".into(),
                 ),
-                Error::RoyalRoadError(royalroad::Error::WebParseError(_)) => internal_server_error,
-                Error::RoyalRoadError(royalroad::Error::ReqwestError(_)) => internal_server_error,
-                Error::RoyalRoadError(_) => internal_server_error,
+                Error::RoyalRoad(royalroad::Error::WebParse(_)) => internal_server_error,
+                Error::RoyalRoad(royalroad::Error::Reqwest(_)) => internal_server_error,
+                Error::RoyalRoad(_) => internal_server_error,
                 Error::MetadataParse(_) => internal_server_error,
                 Error::GatherBookMetadata(_) => internal_server_error,
             };
@@ -156,7 +156,7 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
                 status,
                 err
             );
-            return reply::with_status(reply::json(&body), status);
+            reply::with_status(reply::json(&body), status)
         }
     }
 }

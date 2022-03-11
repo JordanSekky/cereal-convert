@@ -32,7 +32,7 @@ impl Message {
             subject: subject.into(),
             text: text.map(|x| x.into()),
             html: html.map(|x| x.into()),
-            attachment: attachment,
+            attachment,
         }
     }
 }
@@ -93,9 +93,9 @@ pub async fn send_mobi_file(
     };
     let message = Message::new(
         email,
-        &subject,
-        Some(&subject),
-        Some(&subject),
+        subject,
+        Some(subject),
+        Some(subject),
         Some(attachment),
     );
     send_message(message).await

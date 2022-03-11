@@ -126,7 +126,7 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
                 status,
                 err
             );
-            return reply::with_status(reply::json(&body), status);
+            reply::with_status(reply::json(&body), status)
         }
     }
 }

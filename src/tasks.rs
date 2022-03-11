@@ -142,12 +142,12 @@ async fn fetch_chapter_bodies(
     let mut out = Vec::with_capacity(chapters.len());
     for chapter in chapters {
         let body = match &chapter.metadata {
-            ChapterKind::RoyalRoad { id } => royalroad::get_chapter_body(&id).await?,
-            ChapterKind::Pale { url } => pale::get_chapter_body(&url).await?,
+            ChapterKind::RoyalRoad { id } => royalroad::get_chapter_body(id).await?,
+            ChapterKind::Pale { url } => pale::get_chapter_body(url).await?,
             ChapterKind::APracticalGuideToEvil { url } => {
-                practical_guide::get_chapter_body(&url).await?
+                practical_guide::get_chapter_body(url).await?
             }
-            ChapterKind::TheWanderingInn { url } => wandering_inn::get_chapter_body(&url).await?,
+            ChapterKind::TheWanderingInn { url } => wandering_inn::get_chapter_body(url).await?,
         };
         let title = format!("{}: {}", book.name, chapter.name);
         let mobi_bytes =
@@ -166,29 +166,23 @@ async fn get_new_chapters(
         BookKind::RoyalRoad(RoyalRoadBookKind { id }) => {
             royalroad::get_chapters(id, &book.id, &book.author)
                 .await
-                .or(Err(Error::NewChapterFetch(
-                    "Failed to fetch new royalroad chapters.".into(),
-                )))?
+                .map_err(|_| {
+                    Error::NewChapterFetch("Failed to fetch new royalroad chapters.".into())
+                })?
         }
         BookKind::Pale => pale::get_chapters(&book.id)
             .await
-            .or(Err(Error::NewChapterFetch(
-                "Failed to fetch new pale chapters.".into(),
-            )))?,
+            .map_err(|_| Error::NewChapterFetch("Failed to fetch new pale chapters.".into()))?,
         BookKind::APracticalGuideToEvil => {
-            practical_guide::get_chapters(&book.id)
-                .await
-                .or(Err(Error::NewChapterFetch(
+            practical_guide::get_chapters(&book.id).await.map_err(|_| {
+                Error::NewChapterFetch(
                     "Failed to fetch new A Practical Guide To Evil chapters.".into(),
-                )))?
+                )
+            })?
         }
-        BookKind::TheWanderingInn => {
-            wandering_inn::get_chapters(&book.id)
-                .await
-                .or(Err(Error::NewChapterFetch(
-                    "Failed to fetch new The Wandering Inn chapters.".into(),
-                )))?
-        }
+        BookKind::TheWanderingInn => wandering_inn::get_chapters(&book.id).await.map_err(|_| {
+            Error::NewChapterFetch("Failed to fetch new The Wandering Inn chapters.".into())
+        })?,
     };
     if rss_chapters.is_empty() {
         return Ok(rss_chapters);
@@ -313,7 +307,7 @@ async fn send_kindle(
     bytes: &[u8],
 ) -> Result<(), Error> {
     let subject = format!("New Chapter of {}: {}", book.name, chapter.name);
-    mailgun::send_mobi_file(&bytes, kindle_email, &chapter.name, &subject).await?;
+    mailgun::send_mobi_file(bytes, kindle_email, &chapter.name, &subject).await?;
     Ok(())
 }
 

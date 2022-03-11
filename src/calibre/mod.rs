@@ -76,5 +76,5 @@ pub async fn generate_kindle_email_validation_mobi(code: &str) -> Result<Vec<u8>
     let body = format!("Thank you for using cereal. To validate your kindle email address, please input the following code: {}", code);
     let title = "Cereal Kindle Email Validation Book";
 
-    return generate_mobi("txt", &body, &title, &title, "Cereal").await;
+    return generate_mobi("txt", &body, title, title, "Cereal").await;
 }

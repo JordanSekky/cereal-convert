@@ -24,7 +24,8 @@ pub fn get_server_future(
     let book_routes = books::get_filters(pool.clone());
     let delivery_methods_routes = delivery_methods::get_filters(pool.clone());
     let subscription_routes = subscriptions::get_filters(pool.clone());
-    let api_server_future = warp::serve(
+
+    warp::serve(
         ip_rate_limiter
             .or(api_rate_limiter)
             .or(book_routes)
@@ -32,6 +33,5 @@ pub fn get_server_future(
             .or(subscription_routes)
             .with(warp::trace::request()),
     )
-    .run(([0, 0, 0, 0], 3000));
-    api_server_future
+    .run(([0, 0, 0, 0], 3000))
 }

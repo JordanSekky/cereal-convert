@@ -47,7 +47,7 @@ pub async fn run_db_migrations(pool: Pool<PgConnectionManager>) -> Result<(), Er
             return Err(Error);
         }
     };
-    return Ok(());
+    Ok(())
 }
 
 #[derive(Error, Display, Debug)]

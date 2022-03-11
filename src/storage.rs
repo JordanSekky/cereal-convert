@@ -12,12 +12,12 @@ pub async fn store_book(mobi_bytes: Vec<u8>, chapter_id: &Uuid) -> Result<Chapte
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
         StaticProvider::new_minimal(
-            env::var("CEREAL_SPACES_KEY")?.to_string(),
-            env::var("CEREAL_SPACES_SECRET")?.to_string(),
+            env::var("CEREAL_SPACES_KEY")?,
+            env::var("CEREAL_SPACES_SECRET")?,
         ),
         Region::Custom {
             name: "SPACES".to_string(),
-            endpoint: env::var("CEREAL_SPACES_ENDPOINT")?.to_string(),
+            endpoint: env::var("CEREAL_SPACES_ENDPOINT")?,
         },
     );
     let file_name: String = rand::thread_rng()
@@ -37,7 +37,7 @@ pub async fn store_book(mobi_bytes: Vec<u8>, chapter_id: &Uuid) -> Result<Chapte
     Ok(ChapterBody {
         key,
         bucket,
-        chapter_id: chapter_id.clone(),
+        chapter_id: chapter_id.to_owned(),
     })
 }
 
@@ -45,12 +45,12 @@ pub async fn fetch_book(location: &ChapterBody) -> Result<Vec<u8>, Error> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
         StaticProvider::new_minimal(
-            env::var("CEREAL_SPACES_KEY")?.to_string(),
-            env::var("CEREAL_SPACES_SECRET")?.to_string(),
+            env::var("CEREAL_SPACES_KEY")?,
+            env::var("CEREAL_SPACES_SECRET")?,
         ),
         Region::Custom {
             name: "SPACES".to_string(),
-            endpoint: env::var("CEREAL_SPACES_ENDPOINT")?.to_string(),
+            endpoint: env::var("CEREAL_SPACES_ENDPOINT")?,
         },
     );
     let response = s3

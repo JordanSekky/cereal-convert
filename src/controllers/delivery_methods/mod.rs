@@ -81,10 +81,7 @@ pub async fn validate_kindle_email(
                     let _a = db_span.enter();
                     let changeset = KindleEmailChangeset {
                         user_id: request.user_id.clone(),
-                        kindle_email: delivery_method
-                            .kindle_email
-                            .ok_or(Error::NotKindleEmail)?
-                            .clone(),
+                        kindle_email: delivery_method.kindle_email.ok_or(Error::NotKindleEmail)?,
                         kindle_email_enabled: true,
                         kindle_email_verified: true,
                         kindle_email_verification_code_time: None,
@@ -107,7 +104,7 @@ pub async fn validate_kindle_email(
             ))
         }
     };
-    return Ok(serde_json::Map::new());
+    Ok(serde_json::Map::new())
 }
 
 #[tracing::instrument(
@@ -171,7 +168,7 @@ pub async fn register_kindle_email(
         )
         .await?;
     };
-    return Ok(serde_json::Map::new());
+    Ok(serde_json::Map::new())
 }
 
 #[derive(Debug, Deserialize)]
@@ -237,10 +234,7 @@ pub async fn validate_pushover_key(
                     let _a = db_span.enter();
                     let changeset = PushoverChangeset {
                         user_id: request.user_id.clone(),
-                        pushover_key: delivery_method
-                            .pushover_key
-                            .ok_or(Error::NoPushoverKey)?
-                            .clone(),
+                        pushover_key: delivery_method.pushover_key.ok_or(Error::NoPushoverKey)?,
                         pushover_enabled: true,
                         pushover_key_verified: true,
                         pushover_verification_code_time: None,
@@ -263,7 +257,7 @@ pub async fn validate_pushover_key(
             ))
         }
     };
-    return Ok(serde_json::Map::new());
+    Ok(serde_json::Map::new())
 }
 
 #[tracing::instrument(
@@ -310,5 +304,5 @@ pub async fn register_pushover_key(
             .execute(&conn)?;
     };
     pushover::send_verification_token(&request.pushover_key, &code.clone()).await?;
-    return Ok(serde_json::Map::new());
+    Ok(serde_json::Map::new())
 }

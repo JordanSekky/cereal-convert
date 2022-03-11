@@ -6,7 +6,7 @@ use crate::{models, royalroad};
 pub enum Error {
     EstablishConnection(mobc::Error<diesel::ConnectionError>),
     QueryResult(diesel::result::Error),
-    RoyalRoadError(royalroad::Error),
+    RoyalRoad(royalroad::Error),
     MetadataParse(#[error(not(source))] String),
     GatherBookMetadata(models::BookKindToNewBookError),
 }
