@@ -1,11 +1,9 @@
-mod errors;
+use anyhow::{bail, Result};
 use rand::Rng;
 use std::fs;
 use tokio::process::Command;
 use tracing::info;
 use uuid::Uuid;
-
-pub use self::errors::Error;
 
 #[tracing::instrument(
 name = "Converting to mobi",
@@ -22,7 +20,7 @@ pub async fn generate_mobi(
     cover_title: &str,
     book_title: &str,
     author: &str,
-) -> Result<Vec<u8>, errors::Error> {
+) -> Result<Vec<u8>> {
     let file_name: String = rand::thread_rng()
         .sample_iter(rand::distributions::Alphanumeric)
         .take(30)
@@ -41,7 +39,10 @@ pub async fn generate_mobi(
         status_code = ?cover_gen_output.status
     );
     if !cover_gen_output.status.success() {
-        return Err(errors::Error::GenerateCover);
+        bail!(
+            "Calibre cover generation failed with status {:?}",
+            cover_gen_output.status
+        );
     };
     let output = Command::new("ebook-convert")
         .arg(&in_path)
@@ -64,7 +65,7 @@ pub async fn generate_mobi(
         status_code = ?output.status
     );
     if !output.status.success() {
-        return Err(errors::Error::ConvertFile);
+        bail!("Calibre conversion failed with status {:?}", output.status);
     }
     let bytes = fs::read(&out_path)?;
     fs::remove_file(&in_path)?;
@@ -72,7 +73,7 @@ pub async fn generate_mobi(
     Ok(bytes)
 }
 
-pub async fn generate_kindle_email_validation_mobi(code: &str) -> Result<Vec<u8>, errors::Error> {
+pub async fn generate_kindle_email_validation_mobi(code: &str) -> Result<Vec<u8>> {
     let body = format!("Thank you for using cereal. To validate your kindle email address, please input the following code: {}", code);
     let title = "Cereal Kindle Email Validation Book";
 

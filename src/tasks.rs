@@ -195,11 +195,12 @@ async fn fetch_chapter_body(chapter: &NewChapter, book: &Book) -> Result<S3Locat
     }?;
     let title = format!("{}: {}", book.name, chapter.name);
     let mobi_bytes = calibre::generate_mobi(".html", &body, &title, &title, &book.author).await?;
-    Ok(storage::store_book(mobi_bytes).await?)
+    storage::store_book(mobi_bytes).await
 }
 
+#[tracing::instrument(name = "Fetching all new chapter bodies.", level = "info")]
 async fn fetch_chapter_bodies(chapters: &[NewChapter], book: &Book) -> Vec<Result<S3Location>> {
-    join_all(chapters.iter().map(|chap| fetch_chapter_body(chap, book))).await
+    return join_all(chapters.iter().map(|chap| fetch_chapter_body(chap, book))).await;
 }
 
 async fn get_new_chapters(

@@ -1,14 +1,15 @@
 use crate::schema::subscriptions;
 use crate::{connection_pool::PgConnectionManager, models::Subscription};
 
-use crate::util::ErrorMessage;
+use crate::util::map_result;
+use anyhow::anyhow;
+use anyhow::Result;
 use diesel::{OptionalExtension, QueryDsl, RunQueryDsl};
 use mobc::Pool;
-use serde::{Deserialize, Serialize};
-use tracing::{error, span, Instrument, Level};
+use serde::Deserialize;
+use tracing::{span, Instrument, Level};
 use uuid::Uuid;
-use warp::http::StatusCode;
-use warp::{reply, Filter, Reply};
+use warp::{Filter, Reply};
 
 #[derive(Debug, Deserialize, Insertable)]
 #[table_name = "subscriptions"]
@@ -29,7 +30,7 @@ fields(
 pub async fn create_subscription(
     db_pool: Pool<PgConnectionManager>,
     body: SubscriptionRequest,
-) -> Result<Subscription, Error> {
+) -> Result<Subscription> {
     let conn = db_pool
         .get()
         .instrument(tracing::info_span!("Acquiring a DB Connection."))
@@ -57,24 +58,27 @@ fields(
 pub async fn delete_subscription(
     db_pool: Pool<PgConnectionManager>,
     body: SubscriptionRequest,
-) -> Result<Subscription, Error> {
+) -> Result<Subscription> {
     let conn = db_pool
         .get()
         .instrument(tracing::info_span!("Acquiring a DB Connection."))
         .await?
         .into_inner();
     let db_span = span!(Level::INFO, "Inserting subscription to db.");
-    let db_result: Option<Subscription> = {
+    return {
         use crate::schema::subscriptions::dsl::*;
         let _a = db_span.enter();
-        diesel::delete(subscriptions.find((body.user_id, body.book_id)))
+        diesel::delete(subscriptions.find((&body.user_id, &body.book_id)))
             .get_result(&conn)
             .optional()?
+            .ok_or_else(|| {
+                anyhow!(
+                    "Subscription for body {} and book {} did not already exist.",
+                    body.user_id,
+                    body.book_id
+                )
+            })
     };
-    match db_result {
-        None => Err(Error::NotFound),
-        Some(x) => Ok(x),
-    }
 }
 
 pub fn get_filters(
@@ -98,64 +102,4 @@ pub fn get_filters(
         .then(delete_subscription)
         .map(map_result);
     create_sub_filter.or(delete_sub_filter)
-}
-
-fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
-    match result {
-        Ok(x) => reply::with_status(reply::json(&x), StatusCode::OK),
-        Err(err) => {
-            let internal_server_error = (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                ErrorMessage {
-                    message: String::from("An internal exception occurred."),
-                },
-            );
-            let (status, body) = match err {
-                Error::EstablishConnection(_) => internal_server_error,
-                Error::QueryResult(_) => internal_server_error,
-                Error::NotFound => (
-                    StatusCode::NOT_FOUND,
-                    ErrorMessage {
-                        message: "Not found.".into(),
-                    },
-                ),
-            };
-            error!(
-                "Returning error body: {}, StatusCode: {}, Source: {:?}",
-                serde_json::to_string(&body).expect("Failed to serialize outgoing message body."),
-                status,
-                err
-            );
-            reply::with_status(reply::json(&body), status)
-        }
-    }
-}
-
-use std::fmt::Display;
-
-#[derive(Debug)]
-pub enum Error {
-    EstablishConnection(mobc::Error<diesel::ConnectionError>),
-    QueryResult(diesel::result::Error),
-    NotFound,
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{:?}", self))
-    }
-}
-
-impl std::error::Error for Error {}
-
-impl From<mobc::Error<diesel::ConnectionError>> for Error {
-    fn from(x: mobc::Error<diesel::ConnectionError>) -> Self {
-        Error::EstablishConnection(x)
-    }
-}
-
-impl From<diesel::result::Error> for Error {
-    fn from(x: diesel::result::Error) -> Self {
-        Error::QueryResult(x)
-    }
 }

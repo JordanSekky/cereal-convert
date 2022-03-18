@@ -1,4 +1,5 @@
 use crate::diesel::ExpressionMethods;
+use crate::util::map_result;
 use crate::{
     connection_pool::PgConnectionManager,
     models::{Book, BookKind, NewBook},
@@ -8,11 +9,10 @@ use crate::{pale, practical_guide, royalroad, wandering_inn};
 use anyhow::{bail, Result};
 use diesel::{QueryDsl, RunQueryDsl};
 use mobc::Pool;
-use serde::{Deserialize, Serialize};
-use tracing::{error, span, Instrument, Level};
+use serde::Deserialize;
+use tracing::{span, Instrument, Level};
 use uuid::Uuid;
-use warp::http::StatusCode;
-use warp::{reply, Filter, Reply};
+use warp::{Filter, Reply};
 
 use crate::schema::books::dsl::*;
 
@@ -119,17 +119,4 @@ pub fn get_filters(
         .then(get_book)
         .map(map_result);
     create_book_filter.or(get_book_filter)
-}
-
-fn map_result(result: Result<impl Serialize>) -> impl Reply {
-    match result {
-        Ok(x) => reply::with_status(reply::json(&x), StatusCode::OK),
-        Err(err) => {
-            error!(?err, "An uncaught error occurred.");
-            reply::with_status(
-                reply::json(&"An internal exception occurred."),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            )
-        }
-    }
 }

@@ -1,8 +1,7 @@
+use anyhow::{bail, Error};
 use reqwest::multipart::Part;
 use std::env;
 use uuid::Uuid;
-
-pub use self::errors::Error;
 
 #[derive(Debug, Clone)]
 pub struct Attachment {
@@ -75,7 +74,10 @@ pub async fn send_message(message: Message) -> Result<(), Error> {
         .send()
         .await?;
     if !send_email_response.status().is_success() {
-        return Err(Error::MailgunError(send_email_response.status()));
+        bail!(
+            "Received unsuccessful status code from mailgun: {}",
+            send_email_response.status()
+        );
     };
     Ok(())
 }
@@ -99,28 +101,4 @@ pub async fn send_mobi_file(
         Some(attachment),
     );
     send_message(message).await
-}
-
-mod errors {
-    use std::fmt::Display;
-
-    #[derive(Debug)]
-    pub enum Error {
-        ContentTypeError(reqwest::Error),
-        MailgunError(reqwest::StatusCode),
-    }
-
-    impl Display for Error {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_fmt(format_args!("{:?}", self))
-        }
-    }
-
-    impl std::error::Error for Error {}
-
-    impl From<reqwest::Error> for Error {
-        fn from(x: reqwest::Error) -> Self {
-            Error::ContentTypeError(x)
-        }
-    }
 }

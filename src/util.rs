@@ -6,7 +6,7 @@ use derive_more::From;
 use mobc::Pool;
 use reqwest::Url;
 use serde::Serialize;
-use tracing::{info, metadata::LevelFilter};
+use tracing::{error, info, metadata::LevelFilter};
 use tracing_subscriber::{prelude::*, Registry};
 
 use crate::{connection_pool::PgConnectionManager, embedded_migrations, honeycomb};
@@ -102,4 +102,18 @@ pub fn validate_hostname(url: &str, valid_host: &str) -> Result<()> {
         None => bail!("Url {} has no host.", request_url),
     }
     Ok(())
+}
+
+pub fn map_result(result: Result<impl Serialize>) -> impl warp::Reply {
+    use warp::reply;
+    match result {
+        Ok(x) => reply::with_status(reply::json(&x), reqwest::StatusCode::OK),
+        Err(err) => {
+            error!(?err, "An uncaught error occurred.");
+            reply::with_status(
+                reply::json(&"An internal exception occurred."),
+                reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        }
+    }
 }

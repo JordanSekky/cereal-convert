@@ -1,11 +1,10 @@
-pub use errors::Error;
-
+use anyhow::Result;
 use rand::Rng;
 use rusoto_core::{credential::StaticProvider, HttpClient, Region};
 use rusoto_s3::{GetObjectRequest, PutObjectRequest, S3Client, S3Location, S3};
 use std::env;
 
-pub async fn store_book(mobi_bytes: Vec<u8>) -> Result<S3Location, Error> {
+pub async fn store_book(mobi_bytes: Vec<u8>) -> Result<S3Location> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
         StaticProvider::new_minimal(
@@ -38,7 +37,7 @@ pub async fn store_book(mobi_bytes: Vec<u8>) -> Result<S3Location, Error> {
     })
 }
 
-pub async fn fetch_book(location: &S3Location) -> Result<Vec<u8>, Error> {
+pub async fn fetch_book(location: &S3Location) -> Result<Vec<u8>> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
         StaticProvider::new_minimal(
@@ -69,16 +68,4 @@ pub async fn fetch_book(location: &S3Location) -> Result<Vec<u8>, Error> {
         None => Vec::with_capacity(0),
     };
     Ok(bytes)
-}
-
-mod errors {
-    use derive_more::{Display, Error, From};
-
-    #[derive(Debug, Display, Error, From)]
-    pub enum Error {
-        EnvironmentCredentials(std::env::VarError),
-        PutObject(rusoto_core::RusotoError<rusoto_s3::PutObjectError>),
-        GetObject(rusoto_core::RusotoError<rusoto_s3::GetObjectError>),
-        IO(std::io::Error),
-    }
 }

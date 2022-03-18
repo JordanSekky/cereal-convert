@@ -17,7 +17,7 @@ mod wandering_inn;
 #[macro_use]
 extern crate diesel;
 
-use derive_more::{Display, Error};
+use anyhow::Result;
 use tokio::signal;
 use tracing::error;
 
@@ -29,7 +29,7 @@ use util::configure_tracing;
 embed_migrations!();
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<()> {
     configure_tracing();
 
     let pool = establish_connection_pool();
@@ -76,6 +76,3 @@ async fn main() -> Result<(), Error> {
     }
     Ok(())
 }
-
-#[derive(Error, Display, Debug)]
-struct Error;

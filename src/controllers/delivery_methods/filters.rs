@@ -1,13 +1,10 @@
 use mobc::Pool;
-use serde::Serialize;
-use tracing::error;
-use warp::{http::StatusCode, reply, Filter, Reply};
+use warp::{Filter, Reply};
 
-use crate::{connection_pool::PgConnectionManager, util::ErrorMessage};
+use crate::{connection_pool::PgConnectionManager, util::map_result};
 
 use super::{
     register_kindle_email, register_pushover_key, validate_kindle_email, validate_pushover_key,
-    Error,
 };
 
 pub fn get_filters(
@@ -58,44 +55,4 @@ pub fn get_filters(
         .or(validate_email_filter)
         .or(register_pushover_filter)
         .or(validate_pushover_filter)
-}
-
-fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
-    match result {
-        Ok(x) => reply::with_status(reply::json(&x), StatusCode::OK),
-        Err(err) => {
-            let internal_server_error: (StatusCode, ErrorMessage) = (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "An internal exception occurred.".into(),
-            );
-            let (status, body) = match &err {
-                Error::EstablishConnection(_) => internal_server_error,
-                Error::QueryResult(_) => internal_server_error,
-                Error::ValidationConversion(_) => internal_server_error,
-                Error::ValidationDelivery(_) => internal_server_error,
-                Error::Validation(_) => internal_server_error,
-                Error::EmailParse(_) => (
-                    StatusCode::BAD_REQUEST,
-                    "Failed to parse kindle email.".into(),
-                ),
-                Error::NotKindleEmail => (
-                    StatusCode::BAD_REQUEST,
-                    "Email address must be a kindle.com address.".into(),
-                ),
-                Error::NoPushoverKey => (StatusCode::BAD_REQUEST, "No pushover key found.".into()),
-                Error::PushoverDelivery(_) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to send pushover notification.".into(),
-                ),
-            };
-
-            error!(
-                "Returning error body: {}, StatusCode: {}, Source: {:?}",
-                serde_json::to_string(&body).expect("Failed to serialize outgoing message body."),
-                status,
-                &err
-            );
-            reply::with_status(reply::json(&body), status)
-        }
-    }
 }

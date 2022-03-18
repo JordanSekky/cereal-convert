@@ -1,4 +1,3 @@
-mod errors;
 mod filters;
 use crate::models::DeliveryMethod;
 use crate::{calibre, mailgun, pushover};
@@ -6,6 +5,8 @@ use crate::{connection_pool::PgConnectionManager, schema::delivery_methods};
 
 use crate::schema::delivery_methods::dsl::*;
 
+use anyhow::Result;
+use anyhow::{anyhow, bail};
 use chrono::{DateTime, Utc};
 use diesel::{QueryDsl, RunQueryDsl};
 use mobc::Pool;
@@ -15,7 +16,6 @@ use serde_json::Value;
 use tracing::{span, Instrument, Level};
 use uuid::Uuid;
 
-pub use errors::Error;
 pub use filters::get_filters;
 
 #[derive(Debug, Deserialize)]
@@ -56,7 +56,7 @@ fields(
 pub async fn validate_kindle_email(
     request: ValidateKindleEmailRequest,
     db_pool: Pool<PgConnectionManager>,
-) -> Result<serde_json::Map<String, Value>, Error> {
+) -> Result<serde_json::Map<String, Value>> {
     let conn = db_pool
         .get()
         .instrument(tracing::info_span!("Acquiring a DB Connection."))
@@ -81,7 +81,9 @@ pub async fn validate_kindle_email(
                     let _a = db_span.enter();
                     let changeset = KindleEmailChangeset {
                         user_id: request.user_id.clone(),
-                        kindle_email: delivery_method.kindle_email.ok_or(Error::NotKindleEmail)?,
+                        kindle_email: delivery_method.kindle_email.ok_or_else(|| {
+                            anyhow!("No kindle email defined in delivery method.")
+                        })?,
                         kindle_email_enabled: true,
                         kindle_email_verified: true,
                         kindle_email_verification_code_time: None,
@@ -95,13 +97,11 @@ pub async fn validate_kindle_email(
                         .execute(&conn)?;
                 };
             } else {
-                return Err(Error::Validation("Invalid code.".into()));
+                bail!("User provided the incorrect validation code.");
             }
         }
         _ => {
-            return Err(Error::Validation(
-                "User has no in-progress email validations.".into(),
-            ))
+            bail!("User has no in-progress email validations.");
         }
     };
     Ok(serde_json::Map::new())
@@ -119,15 +119,18 @@ fields(
 pub async fn register_kindle_email(
     request: AddKindleEmailRequest,
     db_pool: Pool<PgConnectionManager>,
-) -> Result<serde_json::Map<String, Value>, Error> {
+) -> Result<serde_json::Map<String, Value>> {
     // Assert email domain is "kindle.com". Emails aren't free.
-    let email = addr::parse_email_address(&request.kindle_email)?;
+    let email = addr::parse_email_address(&request.kindle_email)
+        .map_err(|err| anyhow!("Failed to parse email address. Err: {:?}", err))?;
     match email.host() {
         addr::email::Host::Domain(hostname) => match hostname.as_str() {
             "kindle.com" => (),
-            _ => return Err(Error::NotKindleEmail),
+            _ => bail!("Provided email hostname {} is not kindle.com", hostname),
         },
-        addr::email::Host::IpAddr(_) => return Err(Error::NotKindleEmail),
+        addr::email::Host::IpAddr(hostname) => {
+            bail!("Provided email hostname {:?} is not kindle.com", hostname)
+        }
     }
 
     let conn = db_pool
@@ -209,7 +212,7 @@ fields(
 pub async fn validate_pushover_key(
     request: ValidatePushoverRequest,
     db_pool: Pool<PgConnectionManager>,
-) -> Result<serde_json::Map<String, Value>, Error> {
+) -> Result<serde_json::Map<String, Value>> {
     let conn = db_pool
         .get()
         .instrument(tracing::info_span!("Acquiring a DB Connection."))
@@ -234,7 +237,9 @@ pub async fn validate_pushover_key(
                     let _a = db_span.enter();
                     let changeset = PushoverChangeset {
                         user_id: request.user_id.clone(),
-                        pushover_key: delivery_method.pushover_key.ok_or(Error::NoPushoverKey)?,
+                        pushover_key: delivery_method.pushover_key.ok_or_else(|| {
+                            anyhow!("No pushover key defined in delivery method.")
+                        })?,
                         pushover_enabled: true,
                         pushover_key_verified: true,
                         pushover_verification_code_time: None,
@@ -248,13 +253,11 @@ pub async fn validate_pushover_key(
                         .execute(&conn)?;
                 };
             } else {
-                return Err(Error::Validation("Invalid code.".into()));
+                bail!("User provided the incorrect validation code.");
             }
         }
         _ => {
-            return Err(Error::Validation(
-                "User has no in-progress pushover validations.".into(),
-            ))
+            bail!("User has no in-progress pushover validations.");
         }
     };
     Ok(serde_json::Map::new())
@@ -272,7 +275,7 @@ fields(
 pub async fn register_pushover_key(
     request: AddPushoverRequest,
     db_pool: Pool<PgConnectionManager>,
-) -> Result<serde_json::Map<String, Value>, Error> {
+) -> Result<serde_json::Map<String, Value>> {
     let conn = db_pool
         .get()
         .instrument(tracing::info_span!("Acquiring a DB Connection."))
