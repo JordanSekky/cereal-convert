@@ -90,7 +90,7 @@ fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
             };
 
             error!(
-                "Returning error body: {}, StatusCode: {}, Source: {}",
+                "Returning error body: {}, StatusCode: {}, Source: {:?}",
                 serde_json::to_string(&body).expect("Failed to serialize outgoing message body."),
                 status,
                 &err

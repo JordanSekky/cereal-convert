@@ -125,7 +125,7 @@ fn map_result(result: Result<impl Serialize>) -> impl Reply {
     match result {
         Ok(x) => reply::with_status(reply::json(&x), StatusCode::OK),
         Err(err) => {
-            error!(%err, "An uncaught error occurred.");
+            error!(?err, "An uncaught error occurred.");
             reply::with_status(
                 reply::json(&"An internal exception occurred."),
                 StatusCode::INTERNAL_SERVER_ERROR,

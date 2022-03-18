@@ -78,7 +78,7 @@ impl<T, E> ResultExt<T, E> for Result<T, E> {
             Err(e) => {
                 let e: anyhow::Error = e.into();
                 tracing::error!(
-                    "called `Result::unwrap_or_else_log()` on an `Err` value:\n {}",
+                    "called `Result::unwrap_or_else_log()` on an `Err` value:\n {:?}",
                     e
                 );
                 else_case()

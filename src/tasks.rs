@@ -1,5 +1,6 @@
 use anyhow::Context;
 use anyhow::Error;
+use anyhow::Result;
 use diesel::BelongingToDsl;
 use diesel::ExpressionMethods;
 use diesel::JoinOnDsl;
@@ -66,7 +67,7 @@ skip(pool),
 )]
 async fn check_and_queue_chapters(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
     info!("Checking for new chapters");
-    let book_chaps_subs = check_for_new_chapters(pool.clone()).await?;
+    let book_chaps_subs = check_for_all_new_chapters(pool.clone()).await?;
 
     let new_unsent_chapters: Vec<NewUnsentChapter> = book_chaps_subs
         .into_iter()
@@ -95,12 +96,62 @@ async fn check_and_queue_chapters(pool: Pool<PgConnectionManager>) -> Result<(),
 }
 
 #[tracing::instrument(
-name = "Discovering new chapters.",
+name = "Discovering new chapters for a single book.",
 err,
 level = "info"
 skip(pool),
 )]
 async fn check_for_new_chapters(
+    pool: Pool<PgConnectionManager>,
+    book: Book,
+    subs: Vec<Subscription>,
+) -> Result<(Book, Vec<Chapter>, Vec<Subscription>)> {
+    let chaps = get_new_chapters(&book, pool.clone())
+        .await
+        .unwrap_or_else_log(|| Vec::with_capacity(0));
+    let locations = fetch_chapter_bodies(&chaps, &book).await;
+    let (chaps, locations): (Vec<_>, Vec<_>) = chaps
+        .into_iter()
+        .zip(locations.into_iter())
+        .filter_map(|(chap, loc)| match loc {
+            Ok(loc) => Some((chap, loc)),
+            Err(err) => {
+                tracing::error!(?err);
+                None
+            }
+        })
+        .unzip();
+    let chaps: Vec<Chapter> = {
+        let conn = pool.get().await?.into_inner();
+        diesel::insert_into(chapters::table)
+            .values(chaps)
+            .get_results(&conn)?
+    };
+    {
+        let bodies = chaps
+            .iter()
+            .zip(locations.iter())
+            .map(|(chap, location)| ChapterBody {
+                key: location.prefix.clone(),
+                bucket: location.bucket_name.clone(),
+                chapter_id: chap.id,
+            })
+            .collect_vec();
+        let conn = pool.get().await?.into_inner();
+        diesel::insert_into(chapter_bodies::table)
+            .values(&bodies)
+            .execute(&conn)?;
+    }
+    Ok((book, chaps, subs))
+}
+
+#[tracing::instrument(
+name = "Discovering new chapters.",
+err,
+level = "info"
+skip(pool),
+)]
+async fn check_for_all_new_chapters(
     pool: Pool<PgConnectionManager>,
 ) -> Result<Vec<(Book, Vec<Chapter>, Vec<Subscription>)>, Error> {
     // Fetch only books which have subscribers.
@@ -115,54 +166,27 @@ async fn check_for_new_chapters(
             .into_group_map()
     };
 
-    let mut book_chaps_subs = Vec::with_capacity(subscriptions.len());
-    for (book, subs) in subscriptions.into_iter() {
-        let chaps = get_new_chapters(&book, pool.clone())
-            .await
-            .unwrap_or_else_log(|| Vec::with_capacity(0));
-        let locations = fetch_chapter_bodies(&chaps, &book).await;
-        let (chaps, locations): (Vec<_>, Vec<_>) = chaps
+    let book_chaps_subs = join_all(
+        subscriptions
             .into_iter()
-            .zip(locations.into_iter())
-            .filter_map(|(chap, loc)| match loc {
-                Ok(loc) => Some((chap, loc)),
-                Err(err) => {
-                    tracing::error!(%err);
-                    None
-                }
-            })
-            .unzip();
-        let chaps: Vec<Chapter> = {
-            let conn = pool.get().await?.into_inner();
-            diesel::insert_into(chapters::table)
-                .values(chaps)
-                .get_results(&conn)?
-        };
-        {
-            let bodies = chaps
-                .iter()
-                .zip(locations.iter())
-                .map(|(chap, location)| ChapterBody {
-                    key: location.prefix.clone(),
-                    bucket: location.bucket_name.clone(),
-                    chapter_id: chap.id,
-                })
-                .collect_vec();
-            let conn = pool.get().await?.into_inner();
-            diesel::insert_into(chapter_bodies::table)
-                .values(&bodies)
-                .execute(&conn)?;
+            .map(|(book, subs)| check_for_new_chapters(pool.clone(), book, subs)),
+    )
+    .await
+    .into_iter()
+    .filter_map(|x| match x {
+        Ok(x) => Some(x),
+        Err(err) => {
+            tracing::error!(?err);
+            None
         }
-        book_chaps_subs.insert(book_chaps_subs.len(), (book, chaps, subs));
-    }
+    })
+    .collect();
 
     Ok(book_chaps_subs)
 }
 
-async fn fetch_chapter_body(
-    chapter: &NewChapter,
-    book: &Book,
-) -> Result<S3Location, anyhow::Error> {
+#[tracing::instrument(name = "Fetching a new chapter body.", err, level = "info")]
+async fn fetch_chapter_body(chapter: &NewChapter, book: &Book) -> Result<S3Location> {
     let body = match &chapter.metadata {
         ChapterKind::RoyalRoad { id } => royalroad::get_chapter_body(id).await,
         ChapterKind::Pale { url } => pale::get_chapter_body(url).await,
@@ -174,10 +198,7 @@ async fn fetch_chapter_body(
     Ok(storage::store_book(mobi_bytes).await?)
 }
 
-async fn fetch_chapter_bodies(
-    chapters: &[NewChapter],
-    book: &Book,
-) -> Vec<Result<S3Location, anyhow::Error>> {
+async fn fetch_chapter_bodies(chapters: &[NewChapter], book: &Book) -> Vec<Result<S3Location>> {
     join_all(chapters.iter().map(|chap| fetch_chapter_body(chap, book))).await
 }
 
