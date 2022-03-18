@@ -1,10 +1,14 @@
-use chrono::Utc;
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Context;
+use anyhow::Result;
 use itertools::Itertools;
-use reqwest::Url;
 use scraper::{Html, Selector};
 use uuid::Uuid;
 
 use crate::models::{BookKind, ChapterKind, NewBook, NewChapter};
+use crate::util::parse_from_rfc2822;
+use crate::util::validate_hostname;
 
 pub fn get_book() -> NewBook {
     NewBook {
@@ -14,7 +18,7 @@ pub fn get_book() -> NewBook {
     }
 }
 
-pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>, Error> {
+pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>> {
     let content = reqwest::get("https://practicalguidetoevil.wordpress.com/feed/")
         .await?
         .bytes()
@@ -29,39 +33,27 @@ pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>, Error> {
                 metadata: ChapterKind::APracticalGuideToEvil {
                     url: item
                         .link()
-                        .ok_or_else(|| Error::RssContents("No chapter link in RSS item.".into()))?
+                        .ok_or_else(|| anyhow!("No chapter link in RSS item. Item {:?}", &item))?
                         .into(),
                 },
                 author: "erraticerrata".into(),
                 name: item
                     .title()
-                    .ok_or_else(|| {
-                        Error::RssContents(
-                            "No valid practical guide chapter title in RSS Item.".into(),
-                        )
-                    })?
+                    .ok_or_else(|| anyhow!("No chapter title in RSS item. Item {:?}", &item))?
                     .into(),
-                published_at: parse_from_rfc2822(item.pub_date())?,
+                published_at: parse_from_rfc2822(
+                    item.pub_date()
+                        .ok_or_else(|| anyhow!("No publish date in RSS item. Item {:?}", &item))?,
+                )
+                .with_context(|| {
+                    format!("Failed to parse publish date in RSS item. Item {:?}", &item)
+                })?,
             })
         })
         .collect()
 }
 
-fn parse_from_rfc2822(pub_date: Option<&str>) -> Result<chrono::DateTime<Utc>, Error> {
-    match pub_date {
-        Some(datestamp) => match chrono::DateTime::parse_from_rfc2822(datestamp) {
-            Ok(date) => Ok(date.with_timezone(&Utc)),
-            Err(_) => Err(Error::RssContents(
-                "No valid published date in RSS Item".into(),
-            )),
-        },
-        None => Err(Error::RssContents(
-            "No valid published date in RSS Item".into(),
-        )),
-    }
-}
-
-pub async fn get_chapter_body(link: &str) -> Result<String, Error> {
+pub async fn get_chapter_body(link: &str) -> Result<String> {
     let res = reqwest::get(link).await?.text().await?;
     let doc = Html::parse_document(&res);
     let chapter_body_elem_selector = Selector::parse("div.entry-content > *").unwrap();
@@ -74,41 +66,12 @@ pub async fn get_chapter_body(link: &str) -> Result<String, Error> {
         .map(|x| x.html())
         .join("\n");
     if body.trim().is_empty() {
-        return Err(Error::WebParse("Failed to find chapter body.".into()));
+        bail!("Failed to find chapter body.");
     }
     Ok(body)
 }
-use derive_more::{Display, Error, From};
 
-#[derive(Debug, Display, From, Error)]
-#[display(fmt = "A Practical Guide To Evil Error: {}")]
-pub enum Error {
-    UrlParse(url::ParseError),
-    Reqwest(reqwest::Error),
-    Rss(rss::Error),
-    #[from(ignore)]
-    #[display(fmt = "WebParseError: {}", "_0")]
-    WebParse(#[error(not(source))] String),
-    #[from(ignore)]
-    #[display(fmt = "RssContentsError: {}", "_0")]
-    RssContents(#[error(not(source))] String),
-    #[from(ignore)]
-    #[display(fmt = "UrlError: {}", "_0")]
-    Url(#[error(not(source))] String),
-}
-
-pub fn try_parse_url(url: &str) -> Result<(), Error> {
-    let request_url = Url::parse(url)?;
+pub fn try_parse_url(url: &str) -> Result<()> {
     let valid_host = "practicalguidetoevil.wordpress.com";
-    match request_url.host_str() {
-        Some(host) => {
-            if valid_host != host {
-                return Err(Error::Url(String::from(
-                    "Provided hostname is not practicalguidetoevil.wordpress.com",
-                )));
-            };
-        }
-        None => return Err(Error::Url("Url has no host.".into())),
-    }
-    Ok(())
+    validate_hostname(url, valid_host)
 }

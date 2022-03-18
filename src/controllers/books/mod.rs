@@ -1,13 +1,11 @@
-mod errors;
 use crate::diesel::ExpressionMethods;
 use crate::{
     connection_pool::PgConnectionManager,
     models::{Book, BookKind, NewBook},
 };
-pub use errors::Error;
 
-use crate::util::ErrorMessage;
 use crate::{pale, practical_guide, royalroad, wandering_inn};
+use anyhow::{bail, Result};
 use diesel::{QueryDsl, RunQueryDsl};
 use mobc::Pool;
 use serde::{Deserialize, Serialize};
@@ -18,7 +16,7 @@ use warp::{reply, Filter, Reply};
 
 use crate::schema::books::dsl::*;
 
-fn get_book_metadata(url: &str) -> Result<BookKind, Error> {
+fn get_book_metadata(url: &str) -> Result<BookKind> {
     if let Ok(x) = royalroad::try_parse_url(url) {
         return Ok(BookKind::RoyalRoad(x));
     }
@@ -31,9 +29,7 @@ fn get_book_metadata(url: &str) -> Result<BookKind, Error> {
     if let Ok(()) = wandering_inn::try_parse_url(url) {
         return Ok(BookKind::TheWanderingInn);
     }
-    Err(Error::MetadataParse(
-        "Failed to parse url into book metadata.".into(),
-    ))
+    bail!("Failed to parse url {} into book metadata", url);
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,7 +46,7 @@ fields(
     request_id = %Uuid::new_v4(),
 )
 )]
-pub async fn get_book(book_id: Uuid, db_pool: Pool<PgConnectionManager>) -> Result<Book, Error> {
+pub async fn get_book(book_id: Uuid, db_pool: Pool<PgConnectionManager>) -> Result<Book> {
     let conn = db_pool
         .get()
         .instrument(tracing::info_span!("Acquiring a DB Connection."))
@@ -77,7 +73,7 @@ fields(
 pub async fn create_book(
     db_pool: Pool<PgConnectionManager>,
     body: CreateBookRequest,
-) -> Result<Book, Error> {
+) -> Result<Book> {
     let book_kind = get_book_metadata(&body.url)?;
     let conn = db_pool
         .get()
@@ -125,38 +121,15 @@ pub fn get_filters(
     create_book_filter.or(get_book_filter)
 }
 
-fn map_result(result: Result<impl Serialize, Error>) -> impl Reply {
+fn map_result(result: Result<impl Serialize>) -> impl Reply {
     match result {
         Ok(x) => reply::with_status(reply::json(&x), StatusCode::OK),
         Err(err) => {
-            let internal_server_error: (StatusCode, ErrorMessage) = (
+            error!(%err, "An uncaught error occurred.");
+            reply::with_status(
+                reply::json(&"An internal exception occurred."),
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "An internal exception occurred.".into(),
-            );
-            let (status, body) = match err {
-                Error::EstablishConnection(_) => internal_server_error,
-                Error::QueryResult(_) => internal_server_error,
-                Error::RoyalRoad(royalroad::Error::UrlParse(_)) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Provide a valid url.".into(),
-                ),
-                Error::RoyalRoad(royalroad::Error::Url(_)) => (
-                    StatusCode::BAD_REQUEST,
-                    "Provide a url to a royalroad book.".into(),
-                ),
-                Error::RoyalRoad(royalroad::Error::WebParse(_)) => internal_server_error,
-                Error::RoyalRoad(royalroad::Error::Reqwest(_)) => internal_server_error,
-                Error::RoyalRoad(_) => internal_server_error,
-                Error::MetadataParse(_) => internal_server_error,
-                Error::GatherBookMetadata(_) => internal_server_error,
-            };
-            error!(
-                "Returning error body: {}, StatusCode: {}, Source: {}",
-                serde_json::to_string(&body).expect("Failed to serialize outgoing message body."),
-                status,
-                err
-            );
-            reply::with_status(reply::json(&body), status)
+            )
         }
     }
 }

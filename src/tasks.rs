@@ -1,13 +1,14 @@
-use derive_more::Display;
-use derive_more::Error;
-use derive_more::From;
+use anyhow::Context;
+use anyhow::Error;
 use diesel::BelongingToDsl;
 use diesel::ExpressionMethods;
 use diesel::JoinOnDsl;
 use diesel::QueryDsl;
 use diesel::RunQueryDsl;
+use futures::future::join_all;
 use itertools::Itertools;
 use mobc::Pool;
+use rusoto_s3::S3Location;
 use std::time::Duration;
 use tokio::time::MissedTickBehavior;
 use tracing::error;
@@ -32,6 +33,7 @@ use crate::schema::delivery_methods;
 use crate::schema::subscriptions;
 use crate::schema::unsent_chapters;
 use crate::storage;
+use crate::util::ResultExt;
 use crate::wandering_inn;
 use crate::{
     connection_pool::PgConnectionManager,
@@ -115,18 +117,40 @@ async fn check_for_new_chapters(
 
     let mut book_chaps_subs = Vec::with_capacity(subscriptions.len());
     for (book, subs) in subscriptions.into_iter() {
-        let chaps = get_new_chapters(&book, pool.clone()).await?;
+        let chaps = get_new_chapters(&book, pool.clone())
+            .await
+            .unwrap_or_else_log(|| Vec::with_capacity(0));
+        let locations = fetch_chapter_bodies(&chaps, &book).await;
+        let (chaps, locations): (Vec<_>, Vec<_>) = chaps
+            .into_iter()
+            .zip(locations.into_iter())
+            .filter_map(|(chap, loc)| match loc {
+                Ok(loc) => Some((chap, loc)),
+                Err(err) => {
+                    tracing::error!(%err);
+                    None
+                }
+            })
+            .unzip();
         let chaps: Vec<Chapter> = {
             let conn = pool.get().await?.into_inner();
             diesel::insert_into(chapters::table)
                 .values(chaps)
                 .get_results(&conn)?
         };
-        let locations = fetch_chapter_bodies(&chaps, &book).await?;
         {
+            let bodies = chaps
+                .iter()
+                .zip(locations.iter())
+                .map(|(chap, location)| ChapterBody {
+                    key: location.prefix.clone(),
+                    bucket: location.bucket_name.clone(),
+                    chapter_id: chap.id,
+                })
+                .collect_vec();
             let conn = pool.get().await?.into_inner();
             diesel::insert_into(chapter_bodies::table)
-                .values(&locations)
+                .values(&bodies)
                 .execute(&conn)?;
         }
         book_chaps_subs.insert(book_chaps_subs.len(), (book, chaps, subs));
@@ -135,27 +159,26 @@ async fn check_for_new_chapters(
     Ok(book_chaps_subs)
 }
 
-async fn fetch_chapter_bodies(
-    chapters: &[Chapter],
+async fn fetch_chapter_body(
+    chapter: &NewChapter,
     book: &Book,
-) -> Result<Vec<ChapterBody>, Error> {
-    let mut out = Vec::with_capacity(chapters.len());
-    for chapter in chapters {
-        let body = match &chapter.metadata {
-            ChapterKind::RoyalRoad { id } => royalroad::get_chapter_body(id).await?,
-            ChapterKind::Pale { url } => pale::get_chapter_body(url).await?,
-            ChapterKind::APracticalGuideToEvil { url } => {
-                practical_guide::get_chapter_body(url).await?
-            }
-            ChapterKind::TheWanderingInn { url } => wandering_inn::get_chapter_body(url).await?,
-        };
-        let title = format!("{}: {}", book.name, chapter.name);
-        let mobi_bytes =
-            calibre::generate_mobi(".html", &body, &title, &title, &book.author).await?;
-        let location = storage::store_book(mobi_bytes, &chapter.id).await?;
-        out.insert(out.len(), location);
-    }
-    Ok(out)
+) -> Result<S3Location, anyhow::Error> {
+    let body = match &chapter.metadata {
+        ChapterKind::RoyalRoad { id } => royalroad::get_chapter_body(id).await,
+        ChapterKind::Pale { url } => pale::get_chapter_body(url).await,
+        ChapterKind::APracticalGuideToEvil { url } => practical_guide::get_chapter_body(url).await,
+        ChapterKind::TheWanderingInn { url } => wandering_inn::get_chapter_body(url).await,
+    }?;
+    let title = format!("{}: {}", book.name, chapter.name);
+    let mobi_bytes = calibre::generate_mobi(".html", &body, &title, &title, &book.author).await?;
+    Ok(storage::store_book(mobi_bytes).await?)
+}
+
+async fn fetch_chapter_bodies(
+    chapters: &[NewChapter],
+    book: &Book,
+) -> Vec<Result<S3Location, anyhow::Error>> {
+    join_all(chapters.iter().map(|chap| fetch_chapter_body(chap, book))).await
 }
 
 async fn get_new_chapters(
@@ -166,23 +189,17 @@ async fn get_new_chapters(
         BookKind::RoyalRoad(RoyalRoadBookKind { id }) => {
             royalroad::get_chapters(id, &book.id, &book.author)
                 .await
-                .map_err(|_| {
-                    Error::NewChapterFetch("Failed to fetch new royalroad chapters.".into())
-                })?
+                .with_context(|| "Failed to fetch new royalroad chapters.")?
         }
         BookKind::Pale => pale::get_chapters(&book.id)
             .await
-            .map_err(|_| Error::NewChapterFetch("Failed to fetch new pale chapters.".into()))?,
-        BookKind::APracticalGuideToEvil => {
-            practical_guide::get_chapters(&book.id).await.map_err(|_| {
-                Error::NewChapterFetch(
-                    "Failed to fetch new A Practical Guide To Evil chapters.".into(),
-                )
-            })?
-        }
-        BookKind::TheWanderingInn => wandering_inn::get_chapters(&book.id).await.map_err(|_| {
-            Error::NewChapterFetch("Failed to fetch new The Wandering Inn chapters.".into())
-        })?,
+            .with_context(|| "Failed to fetch new pale chapters.")?,
+        BookKind::APracticalGuideToEvil => practical_guide::get_chapters(&book.id)
+            .await
+            .with_context(|| "Failed to fetch new practical guide to evil chapters.")?,
+        BookKind::TheWanderingInn => wandering_inn::get_chapters(&book.id)
+            .await
+            .with_context(|| "Failed to fetch new practical guide to evil chapters.")?,
     };
     if rss_chapters.is_empty() {
         return Ok(rss_chapters);
@@ -245,7 +262,7 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
         }
         let grouped_by_chapter = chaps.iter().into_group_map_by(|x| &x.1);
         for ((chapter, chapter_body), group) in grouped_by_chapter {
-            let bytes = storage::fetch_book(chapter_body).await?;
+            let bytes = storage::fetch_book(&chapter_body.clone().into()).await?;
             for (_, _, book, delivery_method) in group {
                 send_pushover_if_enabled(delivery_method, book, chapter).await;
                 send_kindle_if_enabled(delivery_method, book, chapter, &bytes).await;
@@ -309,29 +326,4 @@ async fn send_kindle(
     let subject = format!("New Chapter of {}: {}", book.name, chapter.name);
     mailgun::send_mobi_file(bytes, kindle_email, &chapter.name, &subject).await?;
     Ok(())
-}
-
-#[derive(Debug, Display, From, Error)]
-#[display(fmt = "Tasks Error: {}")]
-pub enum Error {
-    #[display(fmt = "EstablishConnection: {}", "_0")]
-    EstablishConnection(mobc::Error<diesel::ConnectionError>),
-    #[display(fmt = "QueryResult: {}", "_0")]
-    QueryResult(diesel::result::Error),
-    #[display(fmt = "NewChapterFetch: {}", "_0")]
-    NewChapterFetch(#[error(not(source))] String),
-    #[display(fmt = "RoyalRoad: {}", "_0")]
-    RoyalRoad(royalroad::Error),
-    #[display(fmt = "Pale: {}", "_0")]
-    Pale(pale::Error),
-    #[display(fmt = "A Practical Guide To Evil: {}", "_0")]
-    APracticalGuideToEvil(practical_guide::Error),
-    #[display(fmt = "Wandering Inn: {}", "_0")]
-    WanderingInn(wandering_inn::Error),
-    #[display(fmt = "Calibre: {}", "_0")]
-    Calibre(calibre::Error),
-    #[display(fmt = "Mailgun: {}", "_0")]
-    Mailgun(mailgun::Error),
-    #[display(fmt = "Storage: {}", "_0")]
-    Storage(storage::Error),
 }

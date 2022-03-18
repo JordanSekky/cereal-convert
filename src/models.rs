@@ -5,13 +5,15 @@ use crate::{
     wandering_inn,
 };
 
+use anyhow::Result;
 use chrono::{DateTime, Utc};
-use derive_more::{Display, Error, From, IsVariant, Unwrap};
+use derive_more::{IsVariant, Unwrap};
 use diesel::{
     sql_types::{self},
     types::{FromSql, ToSql},
     Identifiable, Queryable,
 };
+use rusoto_s3::S3Location;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -36,14 +38,9 @@ pub enum BookKind {
     TheWanderingInn,
 }
 
-#[derive(From, Error, Debug, Display)]
-pub enum BookKindToNewBookError {
-    RoyalRoad(royalroad::Error),
-}
-
 impl BookKind {
-    pub async fn to_new_book(&self) -> Result<NewBook, BookKindToNewBookError> {
-        match self {
+    pub async fn to_new_book(&self) -> Result<NewBook> {
+        match &self {
             BookKind::RoyalRoad(x) => Ok(royalroad::as_new_book(x).await?),
             BookKind::Pale => Ok(pale::get_book()),
             BookKind::APracticalGuideToEvil => Ok(practical_guide::get_book()),
@@ -211,7 +208,7 @@ pub struct NewUnsentChapter {
     pub chapter_id: Uuid,
 }
 
-#[derive(Identifiable, Queryable, PartialEq, Debug, Associations, Insertable, Hash, Eq)]
+#[derive(Identifiable, Queryable, PartialEq, Debug, Associations, Insertable, Hash, Eq, Clone)]
 #[table_name = "chapter_bodies"]
 #[belongs_to(Chapter)]
 #[primary_key(chapter_id)]
@@ -219,4 +216,14 @@ pub struct ChapterBody {
     pub key: String,
     pub bucket: String,
     pub chapter_id: Uuid,
+}
+
+impl From<ChapterBody> for S3Location {
+    fn from(val: ChapterBody) -> Self {
+        S3Location {
+            prefix: val.key,
+            bucket_name: val.bucket,
+            ..Default::default()
+        }
+    }
 }

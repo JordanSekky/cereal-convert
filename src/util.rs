@@ -1,9 +1,12 @@
 use std::io::BufWriter;
 
-use derive_more::{Display, Error, From};
+use anyhow::{bail, Result};
+use chrono::Utc;
+use derive_more::From;
 use mobc::Pool;
+use reqwest::Url;
 use serde::Serialize;
-use tracing::{error, info, metadata::LevelFilter};
+use tracing::{info, metadata::LevelFilter};
 use tracing_subscriber::{prelude::*, Registry};
 
 use crate::{connection_pool::PgConnectionManager, embedded_migrations, honeycomb};
@@ -27,12 +30,11 @@ pub fn configure_tracing() {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 }
 
-pub async fn run_db_migrations(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
+pub async fn run_db_migrations(pool: Pool<PgConnectionManager>) -> Result<()> {
     let conn = match pool.get().await {
         Ok(x) => x.into_inner(),
         Err(err) => {
-            error!(?err, "Failed to acquire db connection.");
-            return Err(Error);
+            bail!("Failed to acquire db connection. {:?}", err);
         }
     };
     let mut buf = BufWriter::new(Vec::new());
@@ -43,12 +45,61 @@ pub async fn run_db_migrations(pool: Pool<PgConnectionManager>) -> Result<(), Er
             info!(%migration_out)
         }
         Err(err) => {
-            error!(?err, "Failed to run db migrations.");
-            return Err(Error);
+            bail!("Failed to run db migrations. {:?}", err);
         }
     };
     Ok(())
 }
 
-#[derive(Error, Display, Debug)]
-pub struct Error;
+//
+// Extension trait for Result types.
+//
+
+/// Extension trait for Result types.
+pub trait ResultExt<T, E> {
+    /// Unwraps a result, yielding the content of an [`Ok`].
+    ///
+    /// If its an error case, it logs the error and returns the output of the else case.
+    ///
+    fn unwrap_or_else_log(self, else_case: fn() -> T) -> T
+    where
+        E: Into<anyhow::Error>;
+}
+
+impl<T, E> ResultExt<T, E> for Result<T, E> {
+    #[inline]
+    #[track_caller]
+    fn unwrap_or_else_log(self, else_case: fn() -> T) -> T
+    where
+        E: Into<anyhow::Error>,
+    {
+        match self {
+            Ok(t) => t,
+            Err(e) => {
+                let e: anyhow::Error = e.into();
+                tracing::error!(
+                    "called `Result::unwrap_or_else_log()` on an `Err` value:\n {}",
+                    e
+                );
+                else_case()
+            }
+        }
+    }
+}
+
+pub fn parse_from_rfc2822(pub_date: &str) -> Result<chrono::DateTime<Utc>> {
+    Ok(chrono::DateTime::parse_from_rfc2822(pub_date)?.with_timezone(&Utc))
+}
+
+pub fn validate_hostname(url: &str, valid_host: &str) -> Result<()> {
+    let request_url = Url::parse(url)?;
+    match request_url.host_str() {
+        Some(host) => {
+            if valid_host != host {
+                bail!("Provided hostname {} is not {}.", host, valid_host);
+            };
+        }
+        None => bail!("Url {} has no host.", request_url),
+    }
+    Ok(())
+}

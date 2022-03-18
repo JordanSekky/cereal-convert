@@ -7,8 +7,10 @@ use crate::models::ChapterKind;
 use crate::models::NewBook;
 use crate::models::NewChapter;
 
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Context;
 use chrono::Utc;
-pub use error::Error;
 use rss::Item;
 use scraper::{Html, Selector};
 use serde::Deserialize;
@@ -16,14 +18,14 @@ use serde::Serialize;
 use url::Url;
 use uuid::Uuid;
 
-mod error;
+use anyhow::Result;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct RoyalRoadBookKind {
     pub id: u64,
 }
 
-pub fn try_parse_url(request_url: &str) -> Result<RoyalRoadBookKind, Error> {
+pub fn try_parse_url(request_url: &str) -> Result<RoyalRoadBookKind> {
     let request_url = Url::parse(request_url)?;
     let valid_hosts = vec!["www.royalroad.com", "royalroad.com"];
     if request_url.host_str().is_none()
@@ -31,25 +33,22 @@ pub fn try_parse_url(request_url: &str) -> Result<RoyalRoadBookKind, Error> {
             .iter()
             .any(|v| *v == request_url.host_str().unwrap())
     {
-        return Err(Error::Url(String::from(
-            "Provided hostname is not www.royalroad.com or royalroad.com.",
-        )));
+        bail!(
+            "Provided hostname {} is not www.royalroad.com or royalroad.com.",
+            request_url
+        );
     }
-    let path_segments = request_url.path_segments();
-    let mut path_segments = match path_segments {
-        None => return Err(Error::Url(String::from("No path provided."))),
-        Some(segments) => segments,
-    };
+    let mut path_segments = request_url
+        .path_segments()
+        .ok_or_else(|| anyhow!("No path provided"))?;
 
     let path_start = path_segments.next();
     if path_start != Some("fiction") {
-        return Err(Error::Url(String::from(
-            "Url does not correspond to a book.",
-        )));
+        bail!("Url {} is not a royalroad book.", request_url);
     }
     let royalroad_id: Option<u64> = path_segments.next().and_then(|id| id.parse().ok());
     if royalroad_id.is_none() {
-        return Err(Error::Url("Book id not valid.".into()));
+        bail!("Book id in url {} not valid.", request_url);
     }
     Ok(RoyalRoadBookKind {
         id: royalroad_id.unwrap(),
@@ -64,11 +63,11 @@ fields(
     request_id = %Uuid::new_v4(),
 )
 )]
-pub async fn as_new_book(book_meta: &RoyalRoadBookKind) -> Result<NewBook, Error> {
+pub async fn as_new_book(book_meta: &RoyalRoadBookKind) -> Result<NewBook> {
     return fetch_book_meta(book_meta).await;
 }
 
-async fn fetch_book_meta(book_meta: &RoyalRoadBookKind) -> Result<NewBook, Error> {
+async fn fetch_book_meta(book_meta: &RoyalRoadBookKind) -> Result<NewBook> {
     let link = format!("https://royalroad.com/fiction/{}", book_meta.id);
     let html = reqwest::get(&link).await?.text().await?;
     let doc = Html::parse_document(&html);
@@ -78,30 +77,26 @@ async fn fetch_book_meta(book_meta: &RoyalRoadBookKind) -> Result<NewBook, Error
     let title = doc
         .select(&title_selector)
         .next()
-        .ok_or_else(|| Error::WebParse("Failed to find title element on royalroad page.".into()))?
+        .ok_or_else(|| anyhow!("Failed to find title element on royalroad page."))?
         .text()
         .fold(String::new(), |a, b| a + b)
         .trim()
         .to_string();
 
     if title.is_empty() {
-        return Err(Error::WebParse(
-            "Empty title element on royalroad page.".into(),
-        ));
+        bail!("Empty title element on royalroad page.");
     }
 
     let author = doc
         .select(&author_selector)
         .next()
-        .ok_or_else(|| Error::WebParse("Failed to find author element on royalroad page.".into()))?
+        .ok_or_else(|| anyhow!("Failed to find author element on royalroad page."))?
         .text()
         .fold(String::new(), |a, b| a + b)
         .trim()
         .to_string();
     if author.is_empty() {
-        return Err(Error::WebParse(
-            "Empty author element on royalroad page.".into(),
-        ));
+        bail!("Empty author element on royalroad page.");
     }
     Ok(NewBook {
         name: title,
@@ -110,7 +105,7 @@ async fn fetch_book_meta(book_meta: &RoyalRoadBookKind) -> Result<NewBook, Error
     })
 }
 
-pub async fn get_chapter_body(chapter_id: &u64) -> Result<String, Error> {
+pub async fn get_chapter_body(chapter_id: &u64) -> Result<String> {
     let link = format!("https://www.royalroad.com/fiction/chapter/{}", chapter_id);
     let res = reqwest::get(&link).await?.text().await?;
     let doc = Html::parse_document(&res);
@@ -119,16 +114,12 @@ pub async fn get_chapter_body(chapter_id: &u64) -> Result<String, Error> {
     let body = doc
         .select(&chapter_body_selector)
         .next()
-        .ok_or_else(|| Error::WebParse(format!("Failed to find body in {}", link)))?
+        .ok_or_else(|| anyhow!("Failed to find body in {}", link))?
         .html();
     Ok(body)
 }
 
-pub async fn get_chapters(
-    book_id: u64,
-    book_uuid: &Uuid,
-    author: &str,
-) -> Result<Vec<NewChapter>, Error> {
+pub async fn get_chapters(book_id: u64, book_uuid: &Uuid, author: &str) -> Result<Vec<NewChapter>> {
     let content = reqwest::get(format!("https://www.royalroad.com/syndication/{}", book_id))
         .await?
         .bytes()
@@ -145,16 +136,22 @@ pub async fn get_chapters(
                 },
                 author: author.into(),
                 name: get_chapter_title_from_rss(item, channel.title())?,
-                published_at: get_published_at(item.pub_date())?,
+                published_at: parse_from_rfc2822(
+                    item.pub_date()
+                        .ok_or_else(|| anyhow!("No publish date in RSS item. Item {:?}", &item))?,
+                )
+                .with_context(|| {
+                    format!("Failed to parse publish date in RSS item. Item {:?}", &item)
+                })?,
             })
         })
         .collect()
 }
 
-fn get_chapter_title_from_rss(item: &Item, channel_title: &str) -> Result<String, Error> {
-    let rss_item_title = item.title().ok_or_else(|| {
-        Error::RssContents("No valid royalroad chapter title in RSS Item.".into())
-    })?;
+fn get_chapter_title_from_rss(item: &Item, channel_title: &str) -> Result<String> {
+    let rss_item_title = item
+        .title()
+        .ok_or_else(|| anyhow!("No valid royalroad chapter title in RSS Item."))?;
     if let Some((_book_title, chapter_title)) =
         rss_item_title.split_once(&format!("{} - ", channel_title))
     {
@@ -163,25 +160,15 @@ fn get_chapter_title_from_rss(item: &Item, channel_title: &str) -> Result<String
     Ok(rss_item_title.into())
 }
 
-fn get_chapter_id_from_link(link: Option<&str>) -> Result<u64, Error> {
+fn get_chapter_id_from_link(link: Option<&str>) -> Result<u64> {
     link.and_then(|link| {
         link.rsplit_once("/")
             .map(|(_left, right)| right)
             .and_then(|x| x.parse().ok())
     })
-    .ok_or_else(|| Error::RssContents("No valid royalroad chapter link in RSS Item.".into()))
+    .ok_or_else(|| anyhow!("No valid royalroad chapter link in RSS Item."))
 }
 
-fn get_published_at(pub_date: Option<&str>) -> Result<chrono::DateTime<Utc>, Error> {
-    match pub_date {
-        Some(datestamp) => match chrono::DateTime::parse_from_rfc2822(datestamp) {
-            Ok(date) => Ok(date.with_timezone(&Utc)),
-            Err(_) => Err(Error::RssContents(
-                "No valid published date in RSS Item".into(),
-            )),
-        },
-        None => Err(Error::RssContents(
-            "No valid published date in RSS Item".into(),
-        )),
-    }
+fn parse_from_rfc2822(pub_date: &str) -> Result<chrono::DateTime<Utc>> {
+    Ok(chrono::DateTime::parse_from_rfc2822(pub_date)?.with_timezone(&Utc))
 }

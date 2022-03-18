@@ -1,14 +1,11 @@
 pub use errors::Error;
-use uuid::Uuid;
 
 use rand::Rng;
 use rusoto_core::{credential::StaticProvider, HttpClient, Region};
-use rusoto_s3::{GetObjectRequest, PutObjectRequest, S3Client, S3};
+use rusoto_s3::{GetObjectRequest, PutObjectRequest, S3Client, S3Location, S3};
 use std::env;
 
-use crate::models::ChapterBody;
-
-pub async fn store_book(mobi_bytes: Vec<u8>, chapter_id: &Uuid) -> Result<ChapterBody, Error> {
+pub async fn store_book(mobi_bytes: Vec<u8>) -> Result<S3Location, Error> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
         StaticProvider::new_minimal(
@@ -34,14 +31,14 @@ pub async fn store_book(mobi_bytes: Vec<u8>, chapter_id: &Uuid) -> Result<Chapte
         ..Default::default()
     })
     .await?;
-    Ok(ChapterBody {
-        key,
-        bucket,
-        chapter_id: chapter_id.to_owned(),
+    Ok(S3Location {
+        prefix: key,
+        bucket_name: bucket,
+        ..Default::default()
     })
 }
 
-pub async fn fetch_book(location: &ChapterBody) -> Result<Vec<u8>, Error> {
+pub async fn fetch_book(location: &S3Location) -> Result<Vec<u8>, Error> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
         StaticProvider::new_minimal(
@@ -55,8 +52,8 @@ pub async fn fetch_book(location: &ChapterBody) -> Result<Vec<u8>, Error> {
     );
     let response = s3
         .get_object(GetObjectRequest {
-            bucket: location.bucket.clone(),
-            key: location.key.clone(),
+            bucket: location.bucket_name.clone(),
+            key: location.prefix.clone(),
             ..Default::default()
         })
         .await?;

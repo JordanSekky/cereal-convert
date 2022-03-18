@@ -36,6 +36,7 @@ governor = "0.4.0"
 nonzero_ext = "0.3.0"
 selectors = "0.22.0"
 diesel_migrations = "1.4.0"
+anyhow = "1.0.56"
 
 [dev-dependencies]
 tokio-test = "0.4.2"
