@@ -4,7 +4,8 @@ use warp::{Filter, Reply};
 use crate::{connection_pool::PgConnectionManager, util::map_result};
 
 use super::{
-    register_kindle_email, register_pushover_key, validate_kindle_email, validate_pushover_key,
+    get_delivery_methods, register_kindle_email, register_pushover_key, validate_kindle_email,
+    validate_pushover_key,
 };
 
 pub fn get_filters(
@@ -41,6 +42,7 @@ pub fn get_filters(
         .and(warp::any().map(move || add_pool_db.clone()))
         .then(register_pushover_key)
         .map(map_result);
+    let validate_db_pool = db_pool.clone();
     let validate_pushover_filter = warp::post()
         .and(warp::path("delivery_methods"))
         .and(warp::path("pushover"))
@@ -48,11 +50,20 @@ pub fn get_filters(
         .and(warp::path::end())
         .and(warp::body::content_length_limit(1024))
         .and(warp::body::json())
-        .and(warp::any().map(move || db_pool.clone()))
+        .and(warp::any().map(move || validate_db_pool.clone()))
         .then(validate_pushover_key)
+        .map(map_result);
+    let get_methods_filter = warp::get()
+        .and(warp::path("delivery_methods"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024))
+        .and(warp::query())
+        .and(warp::any().map(move || db_pool.clone()))
+        .then(get_delivery_methods)
         .map(map_result);
     register_email_filter
         .or(validate_email_filter)
         .or(register_pushover_filter)
         .or(validate_pushover_filter)
+        .or(get_methods_filter)
 }

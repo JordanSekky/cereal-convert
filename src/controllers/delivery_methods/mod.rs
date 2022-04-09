@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use diesel::{QueryDsl, RunQueryDsl};
 use mobc::Pool;
 use rand::Rng;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{span, Instrument, Level};
 use uuid::Uuid;
@@ -32,6 +32,11 @@ pub struct AddKindleEmailRequest {
     kindle_email: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct GetDeliveryMethodsRequest {
+    user_id: String,
+}
+
 #[derive(Debug, AsChangeset, Insertable)]
 #[table_name = "delivery_methods"]
 #[changeset_options(treat_none_as_null = "true")]
@@ -42,6 +47,52 @@ struct KindleEmailChangeset {
     kindle_email_enabled: bool,
     kindle_email_verification_code_time: Option<DateTime<Utc>>,
     kindle_email_verification_code: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GetDeliveryMethodsResponse {
+    kindle_email: Option<String>,
+    pushover_key: Option<String>,
+}
+
+#[tracing::instrument(
+name = "Get Validated Delivery Methods",
+err,
+level = "info"
+skip(db_pool),
+fields(
+    request_id = %Uuid::new_v4(),
+)
+)]
+pub async fn get_delivery_methods(
+    request: GetDeliveryMethodsRequest,
+    db_pool: Pool<PgConnectionManager>,
+) -> Result<GetDeliveryMethodsResponse> {
+    let conn = db_pool
+        .get()
+        .instrument(tracing::info_span!("Acquiring a DB Connection."))
+        .await?;
+    let conn = conn.into_inner();
+
+    let db_check_span = span!(Level::INFO, "Inserting or updating kindle email.");
+    let delivery_method: DeliveryMethod = {
+        let _a = db_check_span.enter();
+        delivery_methods.find(&request.user_id).first(&conn)?
+    };
+    let kindle = if delivery_method.kindle_email_enabled && delivery_method.kindle_email_verified {
+        delivery_method.get_kindle_email().clone()
+    } else {
+        None
+    };
+    let pushover = if delivery_method.pushover_enabled && delivery_method.pushover_key_verified {
+        delivery_method.get_pushover_key().clone()
+    } else {
+        None
+    };
+    Ok(GetDeliveryMethodsResponse {
+        kindle_email: kindle,
+        pushover_key: pushover,
+    })
 }
 
 #[tracing::instrument(

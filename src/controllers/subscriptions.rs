@@ -1,3 +1,4 @@
+use crate::models::Book;
 use crate::schema::subscriptions;
 use crate::{connection_pool::PgConnectionManager, models::Subscription};
 
@@ -15,6 +16,11 @@ use warp::{Filter, Reply};
 #[table_name = "subscriptions"]
 pub struct SubscriptionRequest {
     book_id: Uuid,
+    user_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListSubscriptionsRequest {
     user_id: String,
 }
 
@@ -42,6 +48,41 @@ pub async fn create_subscription(
         diesel::insert_into(subscriptions::table)
             .values(body)
             .get_result(&conn)?
+    };
+    Ok(db_result)
+}
+
+#[tracing::instrument(
+name = "Listing subscriptions.",
+err,
+level = "info"
+skip(db_pool),
+fields(
+    request_id = %Uuid::new_v4(),
+)
+)]
+pub async fn list_subscriptions(
+    db_pool: Pool<PgConnectionManager>,
+    body: ListSubscriptionsRequest,
+) -> Result<Vec<Book>> {
+    let conn = db_pool
+        .get()
+        .instrument(tracing::info_span!("Acquiring a DB Connection."))
+        .await?
+        .into_inner();
+    let db_span = span!(Level::INFO, "Fetching subscriptions from db.");
+    let db_result = {
+        use crate::diesel::prelude::*;
+        use crate::schema::books;
+        use crate::schema::subscriptions::dsl::*;
+        let _a = db_span.enter();
+        subscriptions
+            .filter(user_id.eq(&body.user_id))
+            .inner_join(books::table.on(books::id.eq(book_id)))
+            .load::<(Subscription, Book)>(&conn)?
+            .into_iter()
+            .map(|(_, book)| book)
+            .collect()
     };
     Ok(db_result)
 }
@@ -85,6 +126,14 @@ pub fn get_filters(
     db_pool: Pool<PgConnectionManager>,
 ) -> impl Filter<Extract = impl Reply, Error = warp::Rejection> + Clone {
     let create_sub_db = db_pool.clone();
+    let list_subs_db = db_pool.clone();
+    let list_subs_filter = warp::get()
+        .and(warp::path("subscriptions"))
+        .and(warp::path::end())
+        .and(warp::any().map(move || list_subs_db.clone()))
+        .and(warp::query())
+        .then(list_subscriptions)
+        .map(map_result);
     let create_sub_filter = warp::post()
         .and(warp::path("subscriptions"))
         .and(warp::path::end())
@@ -101,5 +150,5 @@ pub fn get_filters(
         .and(warp::body::json())
         .then(delete_subscription)
         .map(map_result);
-    create_sub_filter.or(delete_sub_filter)
+    create_sub_filter.or(delete_sub_filter).or(list_subs_filter)
 }
