@@ -37,6 +37,7 @@ nonzero_ext = "0.3.0"
 selectors = "0.22.0"
 diesel_migrations = "1.4.0"
 anyhow = "1.0.56"
+diesel-tracing = { version = "0.1.5", features = ["postgres"] }
 
 [dev-dependencies]
 tokio-test = "0.4.2"

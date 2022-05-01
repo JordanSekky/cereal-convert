@@ -7,7 +7,6 @@ use anyhow::anyhow;
 use anyhow::Result;
 use diesel::{OptionalExtension, QueryDsl, RunQueryDsl};
 use serde::Deserialize;
-use tracing::{span, Level};
 use uuid::Uuid;
 use warp::{Filter, Reply};
 
@@ -37,13 +36,9 @@ pub async fn create_subscription(
     body: SubscriptionRequest,
 ) -> Result<Subscription> {
     let conn = db_pool.get().await?;
-    let db_span = span!(Level::INFO, "Inserting subscription to db.");
-    let db_result: Subscription = {
-        let _a = db_span.enter();
-        diesel::insert_into(subscriptions::table)
-            .values(body)
-            .get_result(&*conn)?
-    };
+    let db_result: Subscription = diesel::insert_into(subscriptions::table)
+        .values(body)
+        .get_result(&*conn)?;
     Ok(db_result)
 }
 
@@ -61,12 +56,10 @@ pub async fn list_subscriptions(
     body: ListSubscriptionsRequest,
 ) -> Result<Vec<Book>> {
     let conn = db_pool.get().await?;
-    let db_span = span!(Level::INFO, "Fetching subscriptions from db.");
     let db_result = {
         use crate::diesel::prelude::*;
         use crate::schema::books;
         use crate::schema::subscriptions::dsl::*;
-        let _a = db_span.enter();
         subscriptions
             .filter(user_id.eq(&body.user_id))
             .inner_join(books::table.on(books::id.eq(book_id)))
@@ -91,22 +84,18 @@ pub async fn delete_subscription(
     db_pool: InstrumentedPgConnectionPool,
     body: SubscriptionRequest,
 ) -> Result<Subscription> {
+    use crate::schema::subscriptions::dsl::*;
     let conn = db_pool.get().await?;
-    let db_span = span!(Level::INFO, "Inserting subscription to db.");
-    return {
-        use crate::schema::subscriptions::dsl::*;
-        let _a = db_span.enter();
-        diesel::delete(subscriptions.find((&body.user_id, &body.book_id)))
-            .get_result(&*conn)
-            .optional()?
-            .ok_or_else(|| {
-                anyhow!(
-                    "Subscription for body {} and book {} did not already exist.",
-                    body.user_id,
-                    body.book_id
-                )
-            })
-    };
+    diesel::delete(subscriptions.find((&body.user_id, &body.book_id)))
+        .get_result(&*conn)
+        .optional()?
+        .ok_or_else(|| {
+            anyhow!(
+                "Subscription for body {} and book {} did not already exist.",
+                body.user_id,
+                body.book_id
+            )
+        })
 }
 
 pub fn get_filters(

@@ -13,7 +13,6 @@ use diesel::{QueryDsl, RunQueryDsl};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{span, Level};
 use uuid::Uuid;
 
 pub use filters::get_filters;
@@ -68,10 +67,8 @@ pub async fn get_delivery_methods(
     request: GetDeliveryMethodsRequest,
     db_pool: InstrumentedPgConnectionPool,
 ) -> Result<GetDeliveryMethodsResponse> {
-    let db_check_span = span!(Level::INFO, "Inserting or updating kindle email.");
     let delivery_method: DeliveryMethod = {
         let conn = db_pool.get().await?;
-        let _a = db_check_span.enter();
         delivery_methods.find(&request.user_id).first(&*conn)?
     };
     let kindle = if delivery_method.kindle_email_enabled && delivery_method.kindle_email_verified {
@@ -103,9 +100,7 @@ pub async fn validate_kindle_email(
     request: ValidateKindleEmailRequest,
     db_pool: InstrumentedPgConnectionPool,
 ) -> Result<serde_json::Map<String, Value>> {
-    let db_check_span = span!(Level::INFO, "Inserting or updating kindle email.");
     let delivery_method: DeliveryMethod = {
-        let _a = db_check_span.enter();
         let conn = db_pool.get().await?;
         delivery_methods.find(&request.user_id).first(&*conn)?
     };
@@ -117,9 +112,7 @@ pub async fn validate_kindle_email(
             if request.verification_code == code
                 && (chrono::Utc::now() - time < chrono::Duration::hours(1))
             {
-                let db_span = span!(Level::INFO, "Inserting or updating kindle email.");
                 let _ = {
-                    let _a = db_span.enter();
                     let changeset = KindleEmailChangeset {
                         user_id: request.user_id.clone(),
                         kindle_email: delivery_method.kindle_email.ok_or_else(|| {
@@ -175,9 +168,7 @@ pub async fn register_kindle_email(
         }
     }
 
-    let db_check_span = span!(Level::INFO, "Inserting or updating kindle email.");
     let _ = {
-        let _a = db_check_span.enter();
         let code = rand::thread_rng()
             .sample_iter(&rand::distributions::Alphanumeric)
             .take(10)
@@ -250,10 +241,8 @@ pub async fn validate_pushover_key(
     request: ValidatePushoverRequest,
     db_pool: InstrumentedPgConnectionPool,
 ) -> Result<serde_json::Map<String, Value>> {
-    let db_check_span = span!(Level::INFO, "Inserting or updating pushover token.");
     let delivery_method: DeliveryMethod = {
         let conn = db_pool.get().await?;
-        let _a = db_check_span.enter();
         delivery_methods.find(&request.user_id).first(&*conn)?
     };
     match (
@@ -264,9 +253,7 @@ pub async fn validate_pushover_key(
             if request.verification_code == code
                 && (chrono::Utc::now() - time < chrono::Duration::minutes(5))
             {
-                let db_span = span!(Level::INFO, "Inserting or updating kindle email.");
                 let _ = {
-                    let _a = db_span.enter();
                     let changeset = PushoverChangeset {
                         user_id: request.user_id.clone(),
                         pushover_key: delivery_method.pushover_key.ok_or_else(|| {
@@ -309,7 +296,6 @@ pub async fn register_pushover_key(
     request: AddPushoverRequest,
     db_pool: InstrumentedPgConnectionPool,
 ) -> Result<serde_json::Map<String, Value>> {
-    let db_check_span = span!(Level::INFO, "Inserting or updating pushover key.");
     let code = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(10)
@@ -317,7 +303,6 @@ pub async fn register_pushover_key(
         .collect::<String>()
         .to_uppercase();
     let _ = {
-        let _a = db_check_span.enter();
         let changeset = PushoverChangeset {
             user_id: request.user_id,
             pushover_key: request.pushover_key.clone(),

@@ -6,7 +6,6 @@ use crate::{pale, practical_guide, royalroad, wandering_inn};
 use anyhow::{bail, Result};
 use diesel::{QueryDsl, RunQueryDsl};
 use serde::Deserialize;
-use tracing::{span, Level};
 use uuid::Uuid;
 use warp::{Filter, Reply};
 
@@ -45,11 +44,7 @@ fields(
 pub async fn get_book(book_id: Uuid, db_pool: InstrumentedPgConnectionPool) -> Result<Book> {
     let conn = db_pool.get().await?;
 
-    let db_check_span = span!(Level::INFO, "Fetching book from db.");
-    let book: Book = {
-        let _a = db_check_span.enter();
-        books.find(book_id).first(&*conn)?
-    };
+    let book: Book = books.find(book_id).first(&*conn)?;
     Ok(book)
 }
 
@@ -68,22 +63,14 @@ pub async fn create_book(
 ) -> Result<Book> {
     let book_kind = get_book_metadata(&body.url)?;
     let conn = db_pool.get().await?;
-    let db_check_span = span!(Level::INFO, "Checking if book already exists in db.");
-    let existing_book: Result<Book, _> = {
-        let _a = db_check_span.enter();
-        books.filter(metadata.eq(&book_kind)).first(&*conn)
-    };
+    let existing_book: Result<Book, _> = books.filter(metadata.eq(&book_kind)).first(&*conn);
     if let Ok(existing_book) = existing_book {
         return Ok(existing_book);
     }
     let book = book_kind.to_new_book().await?;
-    let db_insert_span = span!(Level::INFO, "Inserting item into DB");
-    let db_result: Book = {
-        let _a = db_insert_span.enter();
-        diesel::insert_into(books)
-            .values::<NewBook>(book)
-            .get_result(&*conn)?
-    };
+    let db_result: Book = diesel::insert_into(books)
+        .values::<NewBook>(book)
+        .get_result(&*conn)?;
     Ok(db_result)
 }
 
