@@ -1,16 +1,12 @@
 use crate::diesel::ExpressionMethods;
-use crate::util::map_result;
-use crate::{
-    connection_pool::PgConnectionManager,
-    models::{Book, BookKind, NewBook},
-};
+use crate::models::{Book, BookKind, NewBook};
+use crate::util::{map_result, InstrumentedPgConnectionPool};
 
 use crate::{pale, practical_guide, royalroad, wandering_inn};
 use anyhow::{bail, Result};
 use diesel::{QueryDsl, RunQueryDsl};
-use mobc::Pool;
 use serde::Deserialize;
-use tracing::{span, Instrument, Level};
+use tracing::{span, Level};
 use uuid::Uuid;
 use warp::{Filter, Reply};
 
@@ -46,17 +42,13 @@ fields(
     request_id = %Uuid::new_v4(),
 )
 )]
-pub async fn get_book(book_id: Uuid, db_pool: Pool<PgConnectionManager>) -> Result<Book> {
-    let conn = db_pool
-        .get()
-        .instrument(tracing::info_span!("Acquiring a DB Connection."))
-        .await?;
-    let conn = conn.into_inner();
+pub async fn get_book(book_id: Uuid, db_pool: InstrumentedPgConnectionPool) -> Result<Book> {
+    let conn = db_pool.get().await?;
 
     let db_check_span = span!(Level::INFO, "Fetching book from db.");
     let book: Book = {
         let _a = db_check_span.enter();
-        books.find(book_id).first(&conn)?
+        books.find(book_id).first(&*conn)?
     };
     Ok(book)
 }
@@ -71,19 +63,15 @@ fields(
 )
 )]
 pub async fn create_book(
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: InstrumentedPgConnectionPool,
     body: CreateBookRequest,
 ) -> Result<Book> {
     let book_kind = get_book_metadata(&body.url)?;
-    let conn = db_pool
-        .get()
-        .instrument(tracing::info_span!("Acquiring a DB Connection."))
-        .await?
-        .into_inner();
+    let conn = db_pool.get().await?;
     let db_check_span = span!(Level::INFO, "Checking if book already exists in db.");
     let existing_book: Result<Book, _> = {
         let _a = db_check_span.enter();
-        books.filter(metadata.eq(&book_kind)).first(&conn)
+        books.filter(metadata.eq(&book_kind)).first(&*conn)
     };
     if let Ok(existing_book) = existing_book {
         return Ok(existing_book);
@@ -94,13 +82,13 @@ pub async fn create_book(
         let _a = db_insert_span.enter();
         diesel::insert_into(books)
             .values::<NewBook>(book)
-            .get_result(&conn)?
+            .get_result(&*conn)?
     };
     Ok(db_result)
 }
 
 pub fn get_filters(
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: &InstrumentedPgConnectionPool,
 ) -> impl Filter<Extract = impl Reply, Error = warp::Rejection> + Clone {
     let create_book_db = db_pool.clone();
     let create_book_filter = warp::post()
@@ -111,11 +99,12 @@ pub fn get_filters(
         .and(warp::body::json())
         .then(create_book)
         .map(map_result);
+    let get_book_db = db_pool.clone();
     let get_book_filter = warp::get()
         .and(warp::path("books"))
         .and(warp::path::param())
         .and(warp::path::end())
-        .and(warp::any().map(move || db_pool.clone()))
+        .and(warp::any().map(move || get_book_db.clone()))
         .then(get_book)
         .map(map_result);
     create_book_filter.or(get_book_filter)

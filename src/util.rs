@@ -6,7 +6,7 @@ use derive_more::From;
 use mobc::Pool;
 use reqwest::Url;
 use serde::Serialize;
-use tracing::{error, info, metadata::LevelFilter};
+use tracing::{error, info, metadata::LevelFilter, Instrument};
 use tracing_subscriber::{prelude::*, Registry};
 
 use crate::{connection_pool::PgConnectionManager, embedded_migrations, honeycomb};
@@ -30,15 +30,10 @@ pub fn configure_tracing() {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 }
 
-pub async fn run_db_migrations(pool: Pool<PgConnectionManager>) -> Result<()> {
-    let conn = match pool.get().await {
-        Ok(x) => x.into_inner(),
-        Err(err) => {
-            bail!("Failed to acquire db connection. {:?}", err);
-        }
-    };
+pub async fn run_db_migrations(pool: InstrumentedPgConnectionPool) -> Result<()> {
+    let conn = pool.get().await?;
     let mut buf = BufWriter::new(Vec::new());
-    match embedded_migrations::run_with_output(&conn, &mut buf) {
+    match embedded_migrations::run_with_output(&*conn, &mut buf) {
         Ok(_) => {
             let buf = buf.into_inner().unwrap();
             let migration_out = String::from_utf8_lossy(&buf);
@@ -115,5 +110,19 @@ pub fn map_result(result: Result<impl Serialize>) -> impl warp::Reply {
                 reqwest::StatusCode::INTERNAL_SERVER_ERROR,
             )
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct InstrumentedPgConnectionPool(pub Pool<PgConnectionManager>);
+
+impl InstrumentedPgConnectionPool {
+    pub async fn get(
+        &self,
+    ) -> Result<mobc::Connection<PgConnectionManager>, mobc::Error<diesel::ConnectionError>> {
+        self.0
+            .get()
+            .instrument(tracing::info_span!("Fetching Database Connection"))
+            .await
     }
 }

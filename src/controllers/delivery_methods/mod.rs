@@ -1,7 +1,8 @@
 mod filters;
 use crate::models::DeliveryMethod;
+use crate::schema::delivery_methods;
+use crate::util::InstrumentedPgConnectionPool;
 use crate::{calibre, mailgun, pushover};
-use crate::{connection_pool::PgConnectionManager, schema::delivery_methods};
 
 use crate::schema::delivery_methods::dsl::*;
 
@@ -9,11 +10,10 @@ use anyhow::Result;
 use anyhow::{anyhow, bail};
 use chrono::{DateTime, Utc};
 use diesel::{QueryDsl, RunQueryDsl};
-use mobc::Pool;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{span, Instrument, Level};
+use tracing::{span, Level};
 use uuid::Uuid;
 
 pub use filters::get_filters;
@@ -66,18 +66,13 @@ fields(
 )]
 pub async fn get_delivery_methods(
     request: GetDeliveryMethodsRequest,
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: InstrumentedPgConnectionPool,
 ) -> Result<GetDeliveryMethodsResponse> {
-    let conn = db_pool
-        .get()
-        .instrument(tracing::info_span!("Acquiring a DB Connection."))
-        .await?;
-    let conn = conn.into_inner();
-
     let db_check_span = span!(Level::INFO, "Inserting or updating kindle email.");
     let delivery_method: DeliveryMethod = {
+        let conn = db_pool.get().await?;
         let _a = db_check_span.enter();
-        delivery_methods.find(&request.user_id).first(&conn)?
+        delivery_methods.find(&request.user_id).first(&*conn)?
     };
     let kindle = if delivery_method.kindle_email_enabled && delivery_method.kindle_email_verified {
         delivery_method.get_kindle_email().clone()
@@ -106,18 +101,13 @@ fields(
 )]
 pub async fn validate_kindle_email(
     request: ValidateKindleEmailRequest,
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: InstrumentedPgConnectionPool,
 ) -> Result<serde_json::Map<String, Value>> {
-    let conn = db_pool
-        .get()
-        .instrument(tracing::info_span!("Acquiring a DB Connection."))
-        .await?;
-    let conn = conn.into_inner();
-
     let db_check_span = span!(Level::INFO, "Inserting or updating kindle email.");
     let delivery_method: DeliveryMethod = {
         let _a = db_check_span.enter();
-        delivery_methods.find(&request.user_id).first(&conn)?
+        let conn = db_pool.get().await?;
+        delivery_methods.find(&request.user_id).first(&*conn)?
     };
     match (
         delivery_method.kindle_email_verification_code,
@@ -140,12 +130,13 @@ pub async fn validate_kindle_email(
                         kindle_email_verification_code_time: None,
                         kindle_email_verification_code: None,
                     };
+                    let conn = db_pool.get().await?;
                     let _result = diesel::insert_into(delivery_methods)
                         .values(&changeset)
                         .on_conflict(user_id)
                         .do_update()
                         .set(&changeset)
-                        .execute(&conn)?;
+                        .execute(&*conn)?;
                 };
             } else {
                 bail!("User provided the incorrect validation code.");
@@ -169,7 +160,7 @@ fields(
 )]
 pub async fn register_kindle_email(
     request: AddKindleEmailRequest,
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: InstrumentedPgConnectionPool,
 ) -> Result<serde_json::Map<String, Value>> {
     // Assert email domain is "kindle.com". Emails aren't free.
     let email = addr::parse_email_address(&request.kindle_email)
@@ -183,12 +174,6 @@ pub async fn register_kindle_email(
             bail!("Provided email hostname {:?} is not kindle.com", hostname)
         }
     }
-
-    let conn = db_pool
-        .get()
-        .instrument(tracing::info_span!("Acquiring a DB Connection."))
-        .await?;
-    let conn = conn.into_inner();
 
     let db_check_span = span!(Level::INFO, "Inserting or updating kindle email.");
     let _ = {
@@ -207,12 +192,13 @@ pub async fn register_kindle_email(
             kindle_email_verification_code_time: Some(chrono::Utc::now()),
             kindle_email_verification_code: Some(code.clone()),
         };
+        let conn = db_pool.get().await?;
         let _result = diesel::insert_into(delivery_methods)
             .values(&changeset)
             .on_conflict(user_id)
             .do_update()
             .set(&changeset)
-            .execute(&conn)?;
+            .execute(&*conn)?;
         let mobi_bytes = calibre::generate_kindle_email_validation_mobi(&code).await?;
         mailgun::send_mobi_file(
             mobi_bytes.as_slice(),
@@ -262,18 +248,13 @@ fields(
 )]
 pub async fn validate_pushover_key(
     request: ValidatePushoverRequest,
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: InstrumentedPgConnectionPool,
 ) -> Result<serde_json::Map<String, Value>> {
-    let conn = db_pool
-        .get()
-        .instrument(tracing::info_span!("Acquiring a DB Connection."))
-        .await?;
-    let conn = conn.into_inner();
-
     let db_check_span = span!(Level::INFO, "Inserting or updating pushover token.");
     let delivery_method: DeliveryMethod = {
+        let conn = db_pool.get().await?;
         let _a = db_check_span.enter();
-        delivery_methods.find(&request.user_id).first(&conn)?
+        delivery_methods.find(&request.user_id).first(&*conn)?
     };
     match (
         delivery_method.pushover_verification_code,
@@ -296,12 +277,13 @@ pub async fn validate_pushover_key(
                         pushover_verification_code_time: None,
                         pushover_verification_code: None,
                     };
+                    let conn = db_pool.get().await?;
                     let _result = diesel::insert_into(delivery_methods)
                         .values(&changeset)
                         .on_conflict(user_id)
                         .do_update()
                         .set(&changeset)
-                        .execute(&conn)?;
+                        .execute(&*conn)?;
                 };
             } else {
                 bail!("User provided the incorrect validation code.");
@@ -325,14 +307,8 @@ fields(
 )]
 pub async fn register_pushover_key(
     request: AddPushoverRequest,
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: InstrumentedPgConnectionPool,
 ) -> Result<serde_json::Map<String, Value>> {
-    let conn = db_pool
-        .get()
-        .instrument(tracing::info_span!("Acquiring a DB Connection."))
-        .await?;
-    let conn = conn.into_inner();
-
     let db_check_span = span!(Level::INFO, "Inserting or updating pushover key.");
     let code = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
@@ -350,12 +326,13 @@ pub async fn register_pushover_key(
             pushover_verification_code_time: Some(chrono::Utc::now()),
             pushover_verification_code: Some(code.clone()),
         };
+        let conn = db_pool.get().await?;
         let _result = diesel::insert_into(delivery_methods)
             .values(&changeset)
             .on_conflict(user_id)
             .do_update()
             .set(&changeset)
-            .execute(&conn)?;
+            .execute(&*conn)?;
     };
     pushover::send_verification_token(&request.pushover_key, &code.clone()).await?;
     Ok(serde_json::Map::new())

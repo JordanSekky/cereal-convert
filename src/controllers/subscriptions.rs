@@ -1,14 +1,13 @@
 use crate::models::Book;
+use crate::models::Subscription;
 use crate::schema::subscriptions;
-use crate::{connection_pool::PgConnectionManager, models::Subscription};
 
-use crate::util::map_result;
+use crate::util::{map_result, InstrumentedPgConnectionPool};
 use anyhow::anyhow;
 use anyhow::Result;
 use diesel::{OptionalExtension, QueryDsl, RunQueryDsl};
-use mobc::Pool;
 use serde::Deserialize;
-use tracing::{span, Instrument, Level};
+use tracing::{span, Level};
 use uuid::Uuid;
 use warp::{Filter, Reply};
 
@@ -34,20 +33,16 @@ fields(
 )
 )]
 pub async fn create_subscription(
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: InstrumentedPgConnectionPool,
     body: SubscriptionRequest,
 ) -> Result<Subscription> {
-    let conn = db_pool
-        .get()
-        .instrument(tracing::info_span!("Acquiring a DB Connection."))
-        .await?
-        .into_inner();
+    let conn = db_pool.get().await?;
     let db_span = span!(Level::INFO, "Inserting subscription to db.");
     let db_result: Subscription = {
         let _a = db_span.enter();
         diesel::insert_into(subscriptions::table)
             .values(body)
-            .get_result(&conn)?
+            .get_result(&*conn)?
     };
     Ok(db_result)
 }
@@ -62,14 +57,10 @@ fields(
 )
 )]
 pub async fn list_subscriptions(
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: InstrumentedPgConnectionPool,
     body: ListSubscriptionsRequest,
 ) -> Result<Vec<Book>> {
-    let conn = db_pool
-        .get()
-        .instrument(tracing::info_span!("Acquiring a DB Connection."))
-        .await?
-        .into_inner();
+    let conn = db_pool.get().await?;
     let db_span = span!(Level::INFO, "Fetching subscriptions from db.");
     let db_result = {
         use crate::diesel::prelude::*;
@@ -79,7 +70,7 @@ pub async fn list_subscriptions(
         subscriptions
             .filter(user_id.eq(&body.user_id))
             .inner_join(books::table.on(books::id.eq(book_id)))
-            .load::<(Subscription, Book)>(&conn)?
+            .load::<(Subscription, Book)>(&*conn)?
             .into_iter()
             .map(|(_, book)| book)
             .collect()
@@ -97,20 +88,16 @@ fields(
 )
 )]
 pub async fn delete_subscription(
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: InstrumentedPgConnectionPool,
     body: SubscriptionRequest,
 ) -> Result<Subscription> {
-    let conn = db_pool
-        .get()
-        .instrument(tracing::info_span!("Acquiring a DB Connection."))
-        .await?
-        .into_inner();
+    let conn = db_pool.get().await?;
     let db_span = span!(Level::INFO, "Inserting subscription to db.");
     return {
         use crate::schema::subscriptions::dsl::*;
         let _a = db_span.enter();
         diesel::delete(subscriptions.find((&body.user_id, &body.book_id)))
-            .get_result(&conn)
+            .get_result(&*conn)
             .optional()?
             .ok_or_else(|| {
                 anyhow!(
@@ -123,7 +110,7 @@ pub async fn delete_subscription(
 }
 
 pub fn get_filters(
-    db_pool: Pool<PgConnectionManager>,
+    db_pool: InstrumentedPgConnectionPool,
 ) -> impl Filter<Extract = impl Reply, Error = warp::Rejection> + Clone {
     let create_sub_db = db_pool.clone();
     let list_subs_db = db_pool.clone();

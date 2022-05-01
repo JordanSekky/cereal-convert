@@ -8,7 +8,6 @@ use diesel::QueryDsl;
 use diesel::RunQueryDsl;
 use futures::future::join_all;
 use itertools::Itertools;
-use mobc::Pool;
 use rusoto_s3::S3Location;
 use std::time::Duration;
 use tokio::time::MissedTickBehavior;
@@ -34,23 +33,23 @@ use crate::schema::delivery_methods;
 use crate::schema::subscriptions;
 use crate::schema::unsent_chapters;
 use crate::storage;
+use crate::util::InstrumentedPgConnectionPool;
 use crate::util::ResultExt;
 use crate::wandering_inn;
 use crate::{
-    connection_pool::PgConnectionManager,
     models::{Book, BookKind, Chapter},
     royalroad::{self},
     schema::books,
 };
 
-pub async fn check_new_chap_loop(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
+pub async fn check_new_chap_loop(pool: InstrumentedPgConnectionPool) -> Result<(), Error> {
     // 5 min check interval for all book.
     let mut interval = tokio::time::interval(Duration::from_secs(5 * 60));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
         interval.tick().await;
-        match check_and_queue_chapters(pool.clone()).await {
+        match check_and_queue_chapters(&pool).await {
             Ok(_) => {}
             Err(err) => {
                 error!(error = ?err, "Error checking for new chapters.")
@@ -65,9 +64,9 @@ err,
 level = "info"
 skip(pool),
 )]
-async fn check_and_queue_chapters(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
+async fn check_and_queue_chapters(pool: &InstrumentedPgConnectionPool) -> Result<(), Error> {
     info!("Checking for new chapters");
-    let book_chaps_subs = check_for_all_new_chapters(pool.clone()).await?;
+    let book_chaps_subs = check_for_all_new_chapters(pool).await?;
 
     let new_unsent_chapters: Vec<NewUnsentChapter> = book_chaps_subs
         .into_iter()
@@ -85,10 +84,10 @@ async fn check_and_queue_chapters(pool: Pool<PgConnectionManager>) -> Result<(),
 
     let inserted_unsent_chapters: Vec<UnsentChapter> = {
         use crate::schema::unsent_chapters::dsl::*;
-        let conn = pool.get().await?.into_inner();
+        let conn = pool.get().await?;
         diesel::insert_into(unsent_chapters)
             .values(&new_unsent_chapters)
-            .get_results(&conn)?
+            .get_results(&*conn)?
     };
     info!(?inserted_unsent_chapters, "Added new unsent chapters.");
 
@@ -102,11 +101,11 @@ level = "info"
 skip(pool),
 )]
 async fn check_for_new_chapters(
-    pool: Pool<PgConnectionManager>,
+    pool: InstrumentedPgConnectionPool,
     book: Book,
     subs: Vec<Subscription>,
 ) -> Result<(Book, Vec<Chapter>, Vec<Subscription>)> {
-    let chaps = get_new_chapters(&book, pool.clone())
+    let chaps = get_new_chapters(&book, &pool)
         .await
         .unwrap_or_else_log(|| Vec::with_capacity(0));
     let locations = fetch_chapter_bodies(&chaps, &book).await;
@@ -122,10 +121,10 @@ async fn check_for_new_chapters(
         })
         .unzip();
     let chaps: Vec<Chapter> = {
-        let conn = pool.get().await?.into_inner();
+        let conn = pool.get().await?;
         diesel::insert_into(chapters::table)
             .values(chaps)
-            .get_results(&conn)?
+            .get_results(&*conn)?
     };
     {
         let bodies = chaps
@@ -137,10 +136,10 @@ async fn check_for_new_chapters(
                 chapter_id: chap.id,
             })
             .collect_vec();
-        let conn = pool.get().await?.into_inner();
+        let conn = pool.get().await?;
         diesel::insert_into(chapter_bodies::table)
             .values(&bodies)
-            .execute(&conn)?;
+            .execute(&*conn)?;
     }
     Ok((book, chaps, subs))
 }
@@ -152,16 +151,16 @@ level = "info"
 skip(pool),
 )]
 async fn check_for_all_new_chapters(
-    pool: Pool<PgConnectionManager>,
+    pool: &InstrumentedPgConnectionPool,
 ) -> Result<Vec<(Book, Vec<Chapter>, Vec<Subscription>)>, Error> {
     // Fetch only books which have subscribers.
     let subscriptions = {
-        let conn = pool.get().await?.into_inner();
+        let conn = pool.get().await?;
         books::table
             .inner_join(
                 subscriptions::table.on(subscriptions::columns::book_id.eq(books::columns::id)),
             )
-            .load::<(Book, Subscription)>(&conn)?
+            .load::<(Book, Subscription)>(&*conn)?
             .into_iter()
             .into_group_map()
     };
@@ -203,9 +202,15 @@ async fn fetch_chapter_bodies(chapters: &[NewChapter], book: &Book) -> Vec<Resul
     return join_all(chapters.iter().map(|chap| fetch_chapter_body(chap, book))).await;
 }
 
+#[tracing::instrument(
+name = "Discovering new chapters for a single book.",
+err,
+level = "info"
+skip(pool),
+)]
 async fn get_new_chapters(
     book: &Book,
-    pool: Pool<PgConnectionManager>,
+    pool: &InstrumentedPgConnectionPool,
 ) -> Result<Vec<NewChapter>, Error> {
     let rss_chapters = match book.metadata {
         BookKind::RoyalRoad(RoyalRoadBookKind { id }) => {
@@ -232,11 +237,11 @@ async fn get_new_chapters(
         .unwrap();
     let existing_chapters = {
         use crate::schema::chapters::dsl::*;
-        let conn = pool.get().await?.into_inner();
+        let conn = pool.get().await?;
         Chapter::belonging_to(book)
             .filter(published_at.ge(oldest_rss_chapter.published_at))
             .order_by(published_at.desc())
-            .load::<Chapter>(&conn)?
+            .load::<Chapter>(&*conn)?
     }
     .into_iter()
     .map(|chap| chap.metadata)
@@ -248,15 +253,15 @@ async fn get_new_chapters(
         .collect())
 }
 
-pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<(), Error> {
+pub async fn send_notifications_loop(pool: InstrumentedPgConnectionPool) -> Result<(), Error> {
     let mut interval = tokio::time::interval(Duration::from_secs(5));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    let conn = pool.get().await?.into_inner();
 
     loop {
         interval.tick().await;
         info!("Checking for new unsent chapters.");
         let chaps: Vec<(UnsentChapter, (Chapter, ChapterBody), Book, DeliveryMethod)> = {
+            let conn = pool.get().await?;
             unsent_chapters::table
                 .inner_join(
                     chapters::table
@@ -268,13 +273,16 @@ pub async fn send_notifications_loop(pool: Pool<PgConnectionManager>) -> Result<
                     delivery_methods::table
                         .on(unsent_chapters::user_id.eq(delivery_methods::user_id)),
                 )
-                .load(&conn)
+                .load(&*conn)
         }?;
         if chaps.is_empty() {
             continue;
         }
         info!("{} unsent chapters found", chaps.len());
-        let delete_result = diesel::delete(unsent_chapters::table).execute(&conn);
+        let delete_result = {
+            let conn = pool.get().await?;
+            diesel::delete(unsent_chapters::table).execute(&*conn)
+        };
         match delete_result {
             Ok(_) => info!("Cleared unsent chapters table."),
             Err(x) => {

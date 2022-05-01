@@ -4,6 +4,8 @@ use diesel::sql_types::Integer;
 use diesel::{Connection, ConnectionError, PgConnection, RunQueryDsl};
 use mobc::{async_trait, Manager, Pool};
 
+use crate::util::InstrumentedPgConnectionPool;
+
 #[derive(QueryableByName)]
 struct TestResult {
     #[sql_type = "Integer"]
@@ -32,6 +34,6 @@ impl Manager for PgConnectionManager {
     }
 }
 
-pub fn establish_connection_pool() -> Pool<PgConnectionManager> {
-    Pool::new(PgConnectionManager)
+pub fn establish_connection_pool() -> InstrumentedPgConnectionPool {
+    InstrumentedPgConnectionPool(Pool::builder().max_open(30).build(PgConnectionManager))
 }
