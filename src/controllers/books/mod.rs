@@ -21,11 +21,11 @@ fn get_book_metadata(url: &str) -> Result<BookKind> {
     if let Ok(()) = practical_guide::try_parse_url(url) {
         return Ok(BookKind::APracticalGuideToEvil);
     }
-    if let Ok(()) = wandering_inn::try_parse_url(url) {
-        return Ok(BookKind::TheWanderingInn);
-    }
     if let Ok(()) = wandering_inn_patreon::try_parse_url(url) {
         return Ok(BookKind::TheWanderingInnPatreon);
+    }
+    if let Ok(()) = wandering_inn::try_parse_url(url) {
+        return Ok(BookKind::TheWanderingInn);
     }
     bail!("Failed to parse url {} into book metadata", url);
 }
