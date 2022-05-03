@@ -28,6 +28,7 @@ use crate::providers::pale;
 use crate::providers::practical_guide;
 use crate::providers::royalroad;
 use crate::providers::royalroad::RoyalRoadBookKind;
+use crate::providers::the_daily_grind_patreon;
 use crate::providers::wandering_inn;
 use crate::providers::wandering_inn_patreon;
 use crate::schema::chapter_bodies;
@@ -195,6 +196,7 @@ async fn fetch_chapter_body(chapter: &NewChapter, book: &Book) -> Result<String>
         ChapterKind::TheWanderingInnPatreon { url, password } => {
             wandering_inn_patreon::get_chapter_body(url, password.as_deref()).await
         }
+        ChapterKind::TheDailyGrindPatreon { html } => Ok(html.into()),
     }
 }
 
@@ -273,6 +275,9 @@ async fn get_new_chapters(
         BookKind::TheWanderingInnPatreon => wandering_inn_patreon::get_chapters(&book.id)
             .await
             .with_context(|| "Failed to fetch new wandering inn patreon chapters.")?,
+        BookKind::TheDailyGrindPatreon => the_daily_grind_patreon::get_chapters(&book.id)
+            .await
+            .with_context(|| "Failed to fetch new daily grind patreon chapters.")?,
     };
     if rss_chapters.is_empty() {
         return Ok(rss_chapters);

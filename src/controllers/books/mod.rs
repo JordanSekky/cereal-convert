@@ -2,7 +2,9 @@ use crate::diesel::ExpressionMethods;
 use crate::models::{Book, BookKind, NewBook};
 use crate::util::{map_result, InstrumentedPgConnectionPool};
 
-use crate::providers::{pale, practical_guide, royalroad, wandering_inn, wandering_inn_patreon};
+use crate::providers::{
+    pale, practical_guide, royalroad, the_daily_grind_patreon, wandering_inn, wandering_inn_patreon,
+};
 use anyhow::{bail, Result};
 use diesel::{QueryDsl, RunQueryDsl};
 use serde::Deserialize;
@@ -20,6 +22,9 @@ fn get_book_metadata(url: &str) -> Result<BookKind> {
     }
     if let Ok(()) = practical_guide::try_parse_url(url) {
         return Ok(BookKind::APracticalGuideToEvil);
+    }
+    if let Ok(()) = the_daily_grind_patreon::try_parse_url(url) {
+        return Ok(BookKind::TheDailyGrindPatreon);
     }
     if let Ok(()) = wandering_inn_patreon::try_parse_url(url) {
         return Ok(BookKind::TheWanderingInnPatreon);
