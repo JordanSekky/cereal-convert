@@ -32,6 +32,10 @@ pub fn get_book() -> NewBook {
     }
 }
 
+#[tracing::instrument(
+    name = "Checking for new patreon wandering inn chapters.",
+    level = "info"
+)]
 pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
@@ -69,6 +73,11 @@ pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>> {
     }
 }
 
+#[tracing::instrument(
+    name = "Reading email files for new wandering inn patreon chapters.",
+    level = "info"
+    skip(s3),
+)]
 async fn get_chapter_metas(
     s3_obj: Object,
     bucket_name: &str,
@@ -118,21 +127,18 @@ async fn get_chapter_metas(
         .flatten();
 
     let links_selector = Selector::parse("div > p a").unwrap();
-    let chapter_links: Vec<(String, &str)> = doc
+
+    let chapters = doc
         .select(&links_selector)
         .filter_map(|x| x.value().attr("href").map(|y| (x.text().join(""), y)))
-        .collect();
-
-    let chapters = chapter_links
-        .into_iter()
         .filter_map(|(href, link_text)| {
             Some(NewChapter {
                 name: chapter_title_from_link(link_text)?.to_owned(),
                 author: String::from("pirateaba"),
-                book_id: book_id.clone(),
+                book_id: *book_id,
                 published_at: published_at?,
                 metadata: ChapterKind::TheWanderingInnPatreon {
-                    url: href.to_owned(),
+                    url: href,
                     password: password.clone(),
                 },
             })
@@ -143,7 +149,7 @@ async fn get_chapter_metas(
 }
 
 fn chapter_title_from_link(link: &str) -> Option<&str> {
-    link.split("/").filter(|x| !x.trim().is_empty()).last()
+    link.split('/').filter(|x| !x.trim().is_empty()).last()
 }
 
 pub async fn get_chapter_body(link: &str, password: Option<&str>) -> Result<String> {
