@@ -186,8 +186,8 @@ async fn check_for_all_new_chapters(
 }
 
 #[tracing::instrument(name = "Fetching a new chapter body.", err, level = "info")]
-async fn fetch_chapter_body(chapter: &NewChapter, book: &Book) -> Result<S3Location> {
-    let body = match &chapter.metadata {
+async fn fetch_chapter_body(chapter: &NewChapter, book: &Book) -> Result<String> {
+    match &chapter.metadata {
         ChapterKind::RoyalRoad { id } => royalroad::get_chapter_body(id).await,
         ChapterKind::Pale { url } => pale::get_chapter_body(url).await,
         ChapterKind::APracticalGuideToEvil { url } => practical_guide::get_chapter_body(url).await,
@@ -195,15 +195,54 @@ async fn fetch_chapter_body(chapter: &NewChapter, book: &Book) -> Result<S3Locat
         ChapterKind::TheWanderingInnPatreon { url, password } => {
             wandering_inn_patreon::get_chapter_body(url, password.as_deref()).await
         }
-    }?;
-    let title = format!("{}: {}", book.name, chapter.name);
-    let mobi_bytes = calibre::generate_mobi(".html", &body, &title, &title, &book.author).await?;
-    storage::store_book(mobi_bytes).await
+    }
 }
 
 #[tracing::instrument(name = "Fetching all new chapter bodies.", level = "info")]
 async fn fetch_chapter_bodies(chapters: &[NewChapter], book: &Book) -> Vec<Result<S3Location>> {
-    return join_all(chapters.iter().map(|chap| fetch_chapter_body(chap, book))).await;
+    // Fetch all bodies as strings from the web.
+    let bodies_and_chapters: Vec<(String, &NewChapter)> =
+        join_all(chapters.iter().map(|chap| fetch_chapter_body(chap, book)))
+            .await
+            .into_iter()
+            .zip(chapters.iter())
+            .filter_map(|(x, chap)| match x {
+                Ok(x) => Some((x, chap)),
+                Err(_err) => None,
+            })
+            .collect();
+    // Chunk the bodies into groups of five
+    let mobi_bytes_futures = bodies_and_chapters
+        .chunks(5)
+        .map(|x| {
+            join_all(x.iter().map(|(body, chap)| {
+                calibre::generate_mobi(".html", body, &chap.name, &chap.name, &chap.author)
+            }))
+        })
+        .collect_vec();
+    // Convert the bodies to a MOBI file, 5 chaps at a time.
+    let mut mobi_bytes = Vec::with_capacity(bodies_and_chapters.len());
+    for bytes_future in mobi_bytes_futures {
+        mobi_bytes.append(&mut bytes_future.await);
+    }
+    let (mobi_success, mobi_errs): (Vec<_>, Vec<_>) =
+        mobi_bytes.into_iter().partition(Result::is_ok);
+
+    let mut mobi_errs: Vec<Result<_, anyhow::Error>> = mobi_errs
+        .into_iter()
+        .map(Result::unwrap_err)
+        .map(Err)
+        .collect();
+    // Store all chapters in S3.
+    let mut locations = join_all(
+        mobi_success
+            .into_iter()
+            .map(Result::unwrap)
+            .map(storage::store_book),
+    )
+    .await;
+    locations.append(&mut mobi_errs);
+    locations
 }
 
 #[tracing::instrument(

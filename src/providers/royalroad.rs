@@ -162,7 +162,7 @@ fn get_chapter_title_from_rss(item: &Item, channel_title: &str) -> Result<String
 
 fn get_chapter_id_from_link(link: Option<&str>) -> Result<u64> {
     link.and_then(|link| {
-        link.rsplit_once("/")
+        link.rsplit_once('/')
             .map(|(_left, right)| right)
             .and_then(|x| x.parse().ok())
     })
