@@ -4,6 +4,8 @@ use std::env;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
+use chrono::DateTime;
+use chrono::Utc;
 use futures::future::join_all;
 use itertools::Itertools;
 use mailparse::MailHeaderMap;
@@ -96,11 +98,10 @@ async fn get_chapter_metas(
         })
         .await?;
     tracing::info!("Last modified at {:?}", chapter_object.last_modified);
-    let published_at: Option<chrono::DateTime<chrono::Utc>> = chapter_object
+    let published_at = chapter_object
         .last_modified
-        .map(|lm| chrono::DateTime::parse_from_rfc3339(&lm).ok())
-        .flatten()
-        .map(|dt| dt.into());
+        .ok_or_else(|| anyhow!("No modification date on email s3 object."))?;
+    let published_at: DateTime<Utc> = DateTime::parse_from_rfc2822(&published_at)?.into();
     tracing::info!("Published at {:?}", published_at);
     let mut chapter_bytes = Vec::new();
     chapter_object
@@ -118,18 +119,13 @@ async fn get_chapter_metas(
         }
         None => bail!("Not a Wandering Inn Email"),
     }
-    let chapter_body = chapter_email.get_body()?;
-    tracing::info!(
-        "Found wandering inn patreon email with body: {}",
-        chapter_body
-    );
-    let subparts = chapter_email
-        .subparts
-        .iter()
-        .map(|x| x.get_body())
-        .collect_vec();
-    tracing::info!("Other bodies: {:?}", subparts);
-    let doc = Html::parse_document(&chapter_body);
+    let body = chapter_email.subparts.iter().last().map(|x| x.get_body());
+    let body = match body {
+        Some(body) => body?,
+        None => bail!("No html body found."),
+    };
+    tracing::info!("Found wandering inn patreon email with body: {}", body);
+    let doc = Html::parse_document(&body);
     let para_tags_selector = Selector::parse("div > p").unwrap();
 
     let password = doc
@@ -151,7 +147,7 @@ async fn get_chapter_metas(
                 name: chapter_title_from_link(link_text)?.to_owned(),
                 author: String::from("pirateaba"),
                 book_id: *book_id,
-                published_at: published_at?,
+                published_at,
                 metadata: ChapterKind::TheWanderingInnPatreon {
                     url: href,
                     password: password.clone(),
@@ -172,6 +168,7 @@ fn chapter_title_from_link(link: &str) -> Option<&str> {
     link.split('/').filter(|x| !x.trim().is_empty()).last()
 }
 
+#[tracing::instrument(name = "Fetching chapter text from link.", level = "info")]
 pub async fn get_chapter_body(link: &str, password: Option<&str>) -> Result<String> {
     let reqwest_client = reqwest::Client::builder().cookie_store(true).build()?;
     if let Some(password) = password {
