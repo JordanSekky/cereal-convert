@@ -1,7 +1,7 @@
 use crate::providers::{
     pale, practical_guide,
     royalroad::{self, RoyalRoadBookKind},
-    wandering_inn,
+    wandering_inn, wandering_inn_patreon,
 };
 use crate::schema::*;
 
@@ -36,6 +36,7 @@ pub enum BookKind {
     Pale,
     APracticalGuideToEvil,
     TheWanderingInn,
+    TheWanderingInnPatreon,
 }
 
 impl BookKind {
@@ -45,6 +46,7 @@ impl BookKind {
             BookKind::Pale => Ok(pale::get_book()),
             BookKind::APracticalGuideToEvil => Ok(practical_guide::get_book()),
             BookKind::TheWanderingInn => Ok(wandering_inn::get_book()),
+            BookKind::TheWanderingInnPatreon => Ok(wandering_inn_patreon::get_book()),
         }
     }
 }
@@ -76,10 +78,22 @@ where
 #[derive(Debug, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow, Hash, Eq)]
 #[sql_type = "sql_types::Jsonb"]
 pub enum ChapterKind {
-    RoyalRoad { id: u64 },
-    Pale { url: String },
-    APracticalGuideToEvil { url: String },
-    TheWanderingInn { url: String },
+    RoyalRoad {
+        id: u64,
+    },
+    Pale {
+        url: String,
+    },
+    APracticalGuideToEvil {
+        url: String,
+    },
+    TheWanderingInn {
+        url: String,
+    },
+    TheWanderingInnPatreon {
+        url: String,
+        password: Option<String>,
+    },
 }
 
 impl<DB> ToSql<sql_types::Jsonb, DB> for ChapterKind

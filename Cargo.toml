@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-reqwest = { version = "0.11.8", features = ["json", "multipart"] }
+reqwest = { version = "0.11.8", features = ["json", "multipart", "cookies"] }
 scraper = "0.12.0"
 futures = { version = "0.3.17" }
 tokio = { version = "1.11.0", features = ["full"] }
@@ -38,6 +38,7 @@ selectors = "0.22.0"
 diesel_migrations = "1.4.0"
 anyhow = "1.0.56"
 diesel-tracing = { version = "0.1.5", features = ["postgres"] }
+mailparse = "0.13.8"
 
 [dev-dependencies]
 tokio-test = "0.4.2"

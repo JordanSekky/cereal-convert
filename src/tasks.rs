@@ -29,6 +29,7 @@ use crate::providers::practical_guide;
 use crate::providers::royalroad;
 use crate::providers::royalroad::RoyalRoadBookKind;
 use crate::providers::wandering_inn;
+use crate::providers::wandering_inn_patreon;
 use crate::schema::chapter_bodies;
 use crate::schema::chapters;
 use crate::schema::delivery_methods;
@@ -191,6 +192,9 @@ async fn fetch_chapter_body(chapter: &NewChapter, book: &Book) -> Result<S3Locat
         ChapterKind::Pale { url } => pale::get_chapter_body(url).await,
         ChapterKind::APracticalGuideToEvil { url } => practical_guide::get_chapter_body(url).await,
         ChapterKind::TheWanderingInn { url } => wandering_inn::get_chapter_body(url).await,
+        ChapterKind::TheWanderingInnPatreon { url, password } => {
+            wandering_inn_patreon::get_chapter_body(url, password.as_deref()).await
+        }
     }?;
     let title = format!("{}: {}", book.name, chapter.name);
     let mobi_bytes = calibre::generate_mobi(".html", &body, &title, &title, &book.author).await?;
@@ -227,6 +231,9 @@ async fn get_new_chapters(
         BookKind::TheWanderingInn => wandering_inn::get_chapters(&book.id)
             .await
             .with_context(|| "Failed to fetch new practical guide to evil chapters.")?,
+        BookKind::TheWanderingInnPatreon => wandering_inn_patreon::get_chapters(&book.id)
+            .await
+            .with_context(|| "Failed to fetch new wandering inn patreon chapters.")?,
     };
     if rss_chapters.is_empty() {
         return Ok(rss_chapters);
