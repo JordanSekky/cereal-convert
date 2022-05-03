@@ -34,6 +34,7 @@ pub fn get_book() -> NewBook {
 
 #[tracing::instrument(
     name = "Checking for new patreon wandering inn chapters.",
+    ret,
     level = "info"
 )]
 pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>> {
@@ -77,6 +78,7 @@ pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>> {
     name = "Reading email files for new wandering inn patreon chapters.",
     level = "info"
     skip(s3),
+    ret
 )]
 async fn get_chapter_metas(
     s3_obj: Object,
@@ -98,6 +100,7 @@ async fn get_chapter_metas(
         .map(|lm| chrono::DateTime::parse_from_rfc3339(&lm).ok())
         .flatten()
         .map(|dt| dt.into());
+    tracing::info!("Published at {:?}", published_at);
     let mut chapter_bytes = Vec::new();
     chapter_object
         .body
@@ -115,6 +118,10 @@ async fn get_chapter_metas(
         None => bail!("Not a Wandering Inn Email"),
     }
     let chapter_body = chapter_email.get_body()?;
+    tracing::debug!(
+        "Found wandering inn patreon email with body: {}",
+        chapter_body
+    );
     let doc = Html::parse_document(&chapter_body);
     let para_tags_selector = Selector::parse("div > p").unwrap();
 
@@ -125,6 +132,7 @@ async fn get_chapter_metas(
         .exactly_one()
         .ok()
         .flatten();
+    tracing::info!("Found password {:?}", password);
 
     let links_selector = Selector::parse("div > p a").unwrap();
 
@@ -148,6 +156,11 @@ async fn get_chapter_metas(
     Ok(chapters)
 }
 
+#[tracing::instrument(
+    name = "Getting chapter name from link.",
+    level = "info"
+    ret
+)]
 fn chapter_title_from_link(link: &str) -> Option<&str> {
     link.split('/').filter(|x| !x.trim().is_empty()).last()
 }
