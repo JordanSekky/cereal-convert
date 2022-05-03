@@ -95,6 +95,7 @@ async fn get_chapter_metas(
             ..Default::default()
         })
         .await?;
+    tracing::info!("Last modified at {:?}", chapter_object.last_modified);
     let published_at: Option<chrono::DateTime<chrono::Utc>> = chapter_object
         .last_modified
         .map(|lm| chrono::DateTime::parse_from_rfc3339(&lm).ok())
@@ -118,10 +119,16 @@ async fn get_chapter_metas(
         None => bail!("Not a Wandering Inn Email"),
     }
     let chapter_body = chapter_email.get_body()?;
-    tracing::debug!(
+    tracing::info!(
         "Found wandering inn patreon email with body: {}",
         chapter_body
     );
+    let subparts = chapter_email
+        .subparts
+        .iter()
+        .map(|x| x.get_body())
+        .collect_vec();
+    tracing::info!("Other bodies: {:?}", subparts);
     let doc = Html::parse_document(&chapter_body);
     let para_tags_selector = Selector::parse("div > p").unwrap();
 
