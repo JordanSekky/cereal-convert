@@ -141,15 +141,15 @@ async fn get_chapter_metas(
 
     let chapters = doc
         .select(&links_selector)
-        .filter_map(|x| x.value().attr("href").map(|y| (x.text().join(""), y)))
+        .filter_map(|x| x.value().attr("href").map(|y| (y, x.text().join(""))))
         .filter_map(|(href, link_text)| {
             Some(NewChapter {
-                name: chapter_title_from_link(link_text)?.to_owned(),
+                name: chapter_title_from_link(&link_text)?.to_owned(),
                 author: String::from("pirateaba"),
                 book_id: *book_id,
                 published_at,
                 metadata: ChapterKind::TheWanderingInnPatreon {
-                    url: href,
+                    url: href.to_owned(),
                     password: password.clone(),
                 },
             })
