@@ -1,8 +1,8 @@
 mod filters;
+use crate::clients::{calibre, mailgun, pushover};
 use crate::models::DeliveryMethod;
 use crate::schema::delivery_methods;
 use crate::util::InstrumentedPgConnectionPool;
-use crate::{calibre, mailgun, pushover};
 
 use crate::schema::delivery_methods::dsl::*;
 

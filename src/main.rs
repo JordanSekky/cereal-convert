@@ -1,19 +1,13 @@
-mod calibre;
+mod clients;
 mod connection_pool;
 mod controllers;
-mod honeycomb;
-mod mailgun;
 mod models;
-mod pale;
-mod practical_guide;
-mod pushover;
+mod providers;
 mod rate_limit;
-mod royalroad;
 mod schema;
 mod storage;
 mod tasks;
 mod util;
-mod wandering_inn;
 #[macro_use]
 extern crate diesel;
 

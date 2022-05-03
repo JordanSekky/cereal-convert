@@ -1,9 +1,9 @@
-use crate::{
+use crate::providers::{
     pale, practical_guide,
     royalroad::{self, RoyalRoadBookKind},
-    schema::*,
     wandering_inn,
 };
+use crate::schema::*;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};

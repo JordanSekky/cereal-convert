@@ -14,8 +14,9 @@ use tokio::time::MissedTickBehavior;
 use tracing::error;
 use tracing::info;
 
-use crate::calibre;
-use crate::mailgun;
+use crate::clients::calibre;
+use crate::clients::mailgun;
+use crate::clients::pushover;
 use crate::models::ChapterBody;
 use crate::models::ChapterKind;
 use crate::models::DeliveryMethod;
@@ -23,10 +24,11 @@ use crate::models::NewChapter;
 use crate::models::NewUnsentChapter;
 use crate::models::Subscription;
 use crate::models::UnsentChapter;
-use crate::pale;
-use crate::practical_guide;
-use crate::pushover;
-use crate::royalroad::RoyalRoadBookKind;
+use crate::providers::pale;
+use crate::providers::practical_guide;
+use crate::providers::royalroad;
+use crate::providers::royalroad::RoyalRoadBookKind;
+use crate::providers::wandering_inn;
 use crate::schema::chapter_bodies;
 use crate::schema::chapters;
 use crate::schema::delivery_methods;
@@ -35,10 +37,8 @@ use crate::schema::unsent_chapters;
 use crate::storage;
 use crate::util::InstrumentedPgConnectionPool;
 use crate::util::ResultExt;
-use crate::wandering_inn;
 use crate::{
     models::{Book, BookKind, Chapter},
-    royalroad::{self},
     schema::books,
 };
 

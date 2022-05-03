@@ -9,7 +9,8 @@ use serde::Serialize;
 use tracing::{error, info, metadata::LevelFilter, Instrument};
 use tracing_subscriber::{prelude::*, Registry};
 
-use crate::{connection_pool::PgConnectionManager, embedded_migrations, honeycomb};
+use crate::clients::honeycomb;
+use crate::{connection_pool::PgConnectionManager, embedded_migrations};
 
 #[derive(Serialize, From)]
 pub struct ErrorMessage {

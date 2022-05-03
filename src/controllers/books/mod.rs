@@ -2,7 +2,7 @@ use crate::diesel::ExpressionMethods;
 use crate::models::{Book, BookKind, NewBook};
 use crate::util::{map_result, InstrumentedPgConnectionPool};
 
-use crate::{pale, practical_guide, royalroad, wandering_inn};
+use crate::providers::{pale, practical_guide, royalroad, wandering_inn};
 use anyhow::{bail, Result};
 use diesel::{QueryDsl, RunQueryDsl};
 use serde::Deserialize;
