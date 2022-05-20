@@ -11,7 +11,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 use warp::{Filter, Reply};
 
-use crate::schema::books::dsl::*;
+use crate::schema::books::dsl::{books, metadata};
 
 fn get_book_metadata(url: &str) -> Result<BookKind> {
     if let Ok(x) = royalroad::try_parse_url(url) {

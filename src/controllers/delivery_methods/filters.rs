@@ -7,7 +7,7 @@ use super::{
     validate_pushover_key,
 };
 
-pub fn get_filters(
+pub fn get(
     db_pool: &InstrumentedPgConnectionPool,
 ) -> impl Filter<Extract = impl Reply, Error = warp::Rejection> + Clone {
     let add_db = db_pool.clone();

@@ -35,6 +35,6 @@ impl Manager for PgConnectionManager {
     }
 }
 
-pub fn establish_connection_pool() -> InstrumentedPgConnectionPool {
+pub fn establish() -> InstrumentedPgConnectionPool {
     InstrumentedPgConnectionPool(Pool::builder().max_open(30).build(PgConnectionManager))
 }

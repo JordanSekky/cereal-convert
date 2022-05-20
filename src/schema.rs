@@ -53,6 +53,8 @@ table! {
         book_id -> Uuid,
         created_at -> Timestamptz,
         user_id -> Text,
+        grouping_quantity -> Int8,
+        last_chapter_id -> Nullable<Uuid>,
     }
 }
 
@@ -66,6 +68,7 @@ table! {
 }
 
 joinable!(chapter_bodies -> chapters (chapter_id));
+joinable!(subscriptions -> chapters (last_chapter_id));
 joinable!(unsent_chapters -> chapters (chapter_id));
 
 allow_tables_to_appear_in_same_query!(

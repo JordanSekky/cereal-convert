@@ -24,6 +24,7 @@ use selectors::Element;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
+use crate::models::Book;
 use crate::models::{BookKind, ChapterKind, NewBook, NewChapter};
 
 pub fn get_book() -> NewBook {
@@ -169,7 +170,12 @@ fn chapter_title_from_link(link: &str) -> Option<&str> {
 }
 
 #[tracing::instrument(name = "Fetching chapter text from link.", level = "info")]
-pub async fn get_chapter_body(link: &str, password: Option<&str>) -> Result<String> {
+pub async fn get_chapter_body(
+    link: &str,
+    password: Option<&str>,
+    book: &Book,
+    chapter: &NewChapter,
+) -> Result<String> {
     let reqwest_client = reqwest::Client::builder().cookie_store(true).build()?;
     if let Some(password) = password {
         let mut form_data = HashMap::with_capacity(2);
@@ -194,6 +200,8 @@ pub async fn get_chapter_body(link: &str, password: Option<&str>) -> Result<Stri
     if body.trim().is_empty() {
         bail!("Failed to find chapter body.");
     }
+    let mut header = format!("<h1>{}: {}</h1>", book.name, chapter.name);
+    header.push_str(&body);
     Ok(body)
 }
 

@@ -2,6 +2,7 @@ extern crate futures;
 extern crate reqwest;
 extern crate url;
 
+use crate::models::Book;
 use crate::models::BookKind;
 use crate::models::ChapterKind;
 use crate::models::NewBook;
@@ -105,7 +106,11 @@ async fn fetch_book_meta(book_meta: &RoyalRoadBookKind) -> Result<NewBook> {
     })
 }
 
-pub async fn get_chapter_body(chapter_id: &u64) -> Result<String> {
+pub async fn get_chapter_body(
+    chapter_id: &u64,
+    book: &Book,
+    chapter: &NewChapter,
+) -> Result<String> {
     let link = format!("https://www.royalroad.com/fiction/chapter/{}", chapter_id);
     let res = reqwest::get(&link).await?.text().await?;
     let doc = Html::parse_document(&res);
@@ -116,7 +121,9 @@ pub async fn get_chapter_body(chapter_id: &u64) -> Result<String> {
         .next()
         .ok_or_else(|| anyhow!("Failed to find body in {}", link))?
         .html();
-    Ok(body)
+    let mut header = format!("<h1>{}: {}</h1>", book.name, chapter.name);
+    header.push_str(&body);
+    Ok(header)
 }
 
 pub async fn get_chapters(book_id: u64, book_uuid: &Uuid, author: &str) -> Result<Vec<NewChapter>> {

@@ -26,11 +26,11 @@ impl Message {
         html: Option<&str>,
         attachment: Option<Attachment>,
     ) -> Self {
-        Message {
+        Self {
             to: to.into(),
             subject: subject.into(),
-            text: text.map(|x| x.into()),
-            html: html.map(|x| x.into()),
+            text: text.map(std::convert::Into::into),
+            html: html.map(std::convert::Into::into),
             attachment,
         }
     }
@@ -52,10 +52,10 @@ pub async fn send_message(message: Message) -> Result<(), Error> {
         .text("subject", message.subject)
         .text("from", env::var("CEREAL_FROM_EMAIL_ADDRESS").unwrap());
     if let Some(text) = message.text {
-        form = form.text("text", text)
+        form = form.text("text", text);
     }
     if let Some(html) = message.html {
-        form = form.text("html", html)
+        form = form.text("html", html);
     }
     if let Some(attachment) = message.attachment {
         form = form.part(
@@ -63,7 +63,7 @@ pub async fn send_message(message: Message) -> Result<(), Error> {
             Part::bytes(attachment.bytes)
                 .file_name(attachment.file_name)
                 .mime_str(&attachment.content_type)?,
-        )
+        );
     }
     let mailgun_api_key =
         env::var("CEREAL_MAILGUN_API_KEY").expect("Mailgun API key not provided.");

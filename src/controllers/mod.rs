@@ -21,7 +21,7 @@ pub fn get_server_future(pool: &InstrumentedPgConnectionPool) -> impl Future<Out
     let api_rate_limiter = path_method_limit_filter(api_limiter);
 
     let book_routes = books::get_filters(pool);
-    let delivery_methods_routes = delivery_methods::get_filters(pool);
+    let delivery_methods_routes = delivery_methods::get(pool);
     let subscription_routes = subscriptions::get_filters(pool.clone());
 
     warp::serve(

@@ -38,7 +38,7 @@ pub async fn run_db_migrations(pool: InstrumentedPgConnectionPool) -> Result<()>
         Ok(_) => {
             let buf = buf.into_inner().unwrap();
             let migration_out = String::from_utf8_lossy(&buf);
-            info!(%migration_out)
+            info!(%migration_out);
         }
         Err(err) => {
             bail!("Failed to run db migrations. {:?}", err);

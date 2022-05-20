@@ -4,7 +4,7 @@ use rusoto_core::{credential::StaticProvider, HttpClient, Region};
 use rusoto_s3::{GetObjectRequest, PutObjectRequest, S3Client, S3Location, S3};
 use std::env;
 
-pub async fn store_book(mobi_bytes: Vec<u8>) -> Result<S3Location> {
+pub async fn store_book(body_bytes: &[u8]) -> Result<S3Location> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
         StaticProvider::new_minimal(
@@ -26,7 +26,7 @@ pub async fn store_book(mobi_bytes: Vec<u8>) -> Result<S3Location> {
     s3.put_object(PutObjectRequest {
         bucket: bucket.clone(),
         key: key.clone(),
-        body: Some(mobi_bytes.into()),
+        body: Some(Vec::from(body_bytes).into()),
         ..Default::default()
     })
     .await?;
@@ -37,7 +37,7 @@ pub async fn store_book(mobi_bytes: Vec<u8>) -> Result<S3Location> {
     })
 }
 
-pub async fn fetch_book(location: &S3Location) -> Result<Vec<u8>> {
+pub async fn fetch_book(location: S3Location) -> Result<Vec<u8>> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
         StaticProvider::new_minimal(

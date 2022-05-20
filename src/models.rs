@@ -3,7 +3,9 @@ use crate::providers::{
     royalroad::{self, RoyalRoadBookKind},
     the_daily_grind_patreon, wandering_inn, wandering_inn_patreon,
 };
-use crate::schema::*;
+use crate::schema::{
+    books, chapter_bodies, chapters, delivery_methods, subscriptions, unsent_chapters,
+};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -43,12 +45,12 @@ pub enum BookKind {
 impl BookKind {
     pub async fn to_new_book(&self) -> Result<NewBook> {
         match &self {
-            BookKind::RoyalRoad(x) => Ok(royalroad::as_new_book(x).await?),
-            BookKind::Pale => Ok(pale::get_book()),
-            BookKind::APracticalGuideToEvil => Ok(practical_guide::get_book()),
-            BookKind::TheWanderingInn => Ok(wandering_inn::get_book()),
-            BookKind::TheWanderingInnPatreon => Ok(wandering_inn_patreon::get_book()),
-            BookKind::TheDailyGrindPatreon => Ok(the_daily_grind_patreon::get_book()),
+            Self::RoyalRoad(x) => Ok(royalroad::as_new_book(x).await?),
+            Self::Pale => Ok(pale::get_book()),
+            Self::APracticalGuideToEvil => Ok(practical_guide::get_book()),
+            Self::TheWanderingInn => Ok(wandering_inn::get_book()),
+            Self::TheWanderingInnPatreon => Ok(wandering_inn_patreon::get_book()),
+            Self::TheDailyGrindPatreon => Ok(the_daily_grind_patreon::get_book()),
         }
     }
 }
@@ -153,8 +155,9 @@ pub struct NewChapter {
     pub published_at: DateTime<Utc>,
 }
 
-#[derive(Identifiable, Queryable, PartialEq, Debug, Associations, Hash, Eq)]
+#[derive(Identifiable, Queryable, QueryableByName, PartialEq, Debug, Associations, Hash, Eq)]
 #[belongs_to(Book)]
+#[table_name = "chapters"]
 pub struct Chapter {
     pub id: Uuid,
     pub name: String,
@@ -173,10 +176,13 @@ pub struct Subscription {
     pub book_id: Uuid,
     pub created_at: DateTime<Utc>,
     pub user_id: String,
+    pub grouping_quantity: i64,
+    pub last_chapter_id: Option<Uuid>,
 }
 
 #[derive(Identifiable, Queryable, PartialEq, Debug, Associations)]
 #[primary_key(user_id)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct DeliveryMethod {
     pub user_id: String,
     pub kindle_email: Option<String>,
@@ -194,7 +200,7 @@ pub struct DeliveryMethod {
 }
 
 impl DeliveryMethod {
-    pub fn get_pushover_key(&self) -> &Option<String> {
+    pub const fn get_pushover_key(&self) -> &Option<String> {
         if self.pushover_enabled && self.pushover_key_verified {
             &self.pushover_key
         } else {
@@ -202,7 +208,7 @@ impl DeliveryMethod {
         }
     }
 
-    pub fn get_kindle_email(&self) -> &Option<String> {
+    pub const fn get_kindle_email(&self) -> &Option<String> {
         if self.kindle_email_enabled && self.kindle_email_verified {
             &self.kindle_email
         } else {

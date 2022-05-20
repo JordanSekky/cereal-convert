@@ -15,7 +15,7 @@ use anyhow::Result;
 use tokio::signal;
 use tracing::error;
 
-use crate::{connection_pool::establish_connection_pool, controllers::get_server_future};
+use crate::{connection_pool::establish, controllers::get_server_future};
 #[macro_use]
 extern crate diesel_migrations;
 use util::configure_tracing;
@@ -26,7 +26,7 @@ embed_migrations!();
 async fn main() -> Result<()> {
     configure_tracing();
 
-    let pool = establish_connection_pool();
+    let pool = establish();
     util::run_db_migrations(pool.clone()).await.unwrap();
 
     let cancel = tokio::spawn(signal::ctrl_c());

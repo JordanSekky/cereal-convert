@@ -6,6 +6,7 @@ use itertools::Itertools;
 use scraper::{Html, Selector};
 use uuid::Uuid;
 
+use crate::models::Book;
 use crate::models::{BookKind, ChapterKind, NewBook, NewChapter};
 use crate::util::parse_from_rfc2822;
 use crate::util::validate_hostname;
@@ -53,7 +54,11 @@ pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>> {
         .collect()
 }
 
-pub async fn get_chapter_body(link: &str) -> Result<String, anyhow::Error> {
+pub async fn get_chapter_body(
+    link: &str,
+    book: &Book,
+    chapter: &NewChapter,
+) -> Result<String, anyhow::Error> {
     let res = reqwest::get(link).await?.text().await?;
     let doc = Html::parse_document(&res);
     let chapter_body_elem_selector = Selector::parse("div.entry-content > *").unwrap();
@@ -68,6 +73,8 @@ pub async fn get_chapter_body(link: &str) -> Result<String, anyhow::Error> {
     if body.trim().is_empty() {
         bail!("Failed to find chapter body.");
     }
+    let mut header = format!("<h1>{}: {}</h1>", book.name, chapter.name);
+    header.push_str(&body);
     Ok(body)
 }
 
