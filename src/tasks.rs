@@ -473,7 +473,7 @@ async fn update_subscription_last_chapter_id(
             .filter(user_id.eq(user_id_str))
             .filter(book_id.eq(chapters[0].book_id)),
     )
-    .set(last_chapter_id.eq(chapters[chapters.len()].id))
+    .set(last_chapter_id.eq(chapters[chapters.len() - 1].id))
     .execute(&*conn)?;
     Ok(())
 }
