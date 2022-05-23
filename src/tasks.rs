@@ -1,8 +1,7 @@
+use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Error;
 use anyhow::Result;
-use chrono::DateTime;
-use chrono::Utc;
 use diesel::sql_query;
 use diesel::BelongingToDsl;
 use diesel::ExpressionMethods;
@@ -24,6 +23,7 @@ use crate::clients::mailgun;
 use crate::clients::pushover;
 use crate::models::ChapterBody;
 use crate::models::ChapterKind;
+use crate::models::ChapterWithUser;
 use crate::models::DeliveryMethod;
 use crate::models::NewChapter;
 use crate::providers::pale;
@@ -36,7 +36,6 @@ use crate::providers::wandering_inn_patreon;
 use crate::schema::chapter_bodies;
 use crate::schema::chapters;
 use crate::schema::delivery_methods;
-use crate::schema::subscriptions;
 use crate::storage;
 use crate::util::InstrumentedPgConnectionPool;
 use crate::util::ResultExt;
@@ -134,6 +133,7 @@ async fn check_for_all_new_chapters(
 ) -> Result<Vec<(Book, Vec<Chapter>)>, Error> {
     // Fetch only books which have subscribers.
     let books = {
+        use crate::schema::subscriptions;
         let conn = pool.get().await?;
         books::table
             .inner_join(
@@ -268,114 +268,146 @@ pub async fn send_notifications_loop(pool: InstrumentedPgConnectionPool) -> Resu
 
     loop {
         interval.tick().await;
-        info!("Checking for new unsent chapters.");
+        match send_notifications(pool.clone()).await {
+            Ok(_) => {}
+            Err(err) => error!({%err}, "An error occurred sending notifications."),
+        };
+    }
+}
 
-        #[derive(PartialEq, Debug, Hash, Eq, QueryableByName)]
-        #[table_name = "chapters"]
-        struct ChapterWithUser {
-            #[sql_type = "diesel::sql_types::Text"]
-            user_id: String,
-            #[sql_type = "diesel::sql_types::BigInt"]
-            grouping_quantity: i64,
-            id: Uuid,
-            name: String,
-            author: String,
-            created_at: DateTime<Utc>,
-            updated_at: DateTime<Utc>,
-            book_id: Uuid,
-            published_at: DateTime<Utc>,
-            metadata: ChapterKind,
-        }
+async fn send_notifications(pool: InstrumentedPgConnectionPool) -> Result<()> {
+    info!("Checking for new unsent chapters.");
 
-        let chaps: Vec<ChapterWithUser> = {
-            let conn = pool.get().await?;
-            let chapters_query = "
+    let chaps: Vec<ChapterWithUser> = {
+        let conn = pool.get().await?;
+        let chapters_query = "
             select subs_with_timestamp.user_id, subs_with_timestamp.grouping_quantity, chapters.* from (
-                select subscriptions.*, coalesce(max(chapters.published_at), TIMESTAMP '2099-01-25 10:10:10.555555') as last_chapter_timestamp from subscriptions
+                select subscriptions.*, coalesce(max(chapters.published_at), TIMESTAMP '1982-05-20 22:06:05.944623+00') as last_chapter_timestamp from subscriptions
                 left join chapters on chapters.id = last_chapter_id
                 group by subscriptions.user_id, subscriptions.book_id) as subs_with_timestamp
             left join books on books.id = subs_with_timestamp.book_id
             left join chapters on chapters.book_id = books.id
             where chapters.published_at > subs_with_timestamp.last_chapter_timestamp
             ";
-            sql_query(chapters_query).load(&*conn)?
+        sql_query(chapters_query).load(&*conn)?
+    };
+
+    let mut user_id_to_book_ids_to_chapters: HashMap<String, HashMap<(Uuid, i64), Vec<Chapter>>> =
+        HashMap::new();
+    for chap in chaps {
+        let book_ids_to_chapters = user_id_to_book_ids_to_chapters
+            .entry(chap.user_id)
+            .or_default();
+        let chap_list = book_ids_to_chapters
+            .entry((chap.book_id, chap.grouping_quantity))
+            .or_default();
+        let new_chap = Chapter {
+            id: chap.id,
+            name: chap.name,
+            author: chap.author,
+            created_at: chap.created_at,
+            published_at: chap.published_at,
+            book_id: chap.book_id,
+            updated_at: chap.updated_at,
+            metadata: chap.metadata,
         };
-        let user_ids = chaps
-            .iter()
-            .map(|x| x.user_id.clone())
-            .unique()
-            .collect_vec();
-        let book_ids = chaps.iter().map(|x| x.book_id).unique().collect_vec();
+        match chap_list.binary_search_by(|a| a.published_at.cmp(&new_chap.published_at)) {
+            Ok(_pos) => {} // element already in vector @ `pos`
+            Err(pos) => chap_list.insert(pos, new_chap),
+        }
+    }
 
-        let grouped_by_user = chaps.into_iter().group_by(|x| x.user_id.clone());
+    let user_ids = user_id_to_book_ids_to_chapters.keys().collect_vec();
+    let book_ids = user_id_to_book_ids_to_chapters
+        .values()
+        .flat_map(|x| x.keys().map(|(book_id, _group_size)| book_id))
+        .collect_vec();
 
-        let user_id_to_chapter_id: HashMap<String, (i64, Uuid, Vec<Chapter>)> = grouped_by_user
+    let user_to_delivery_method: HashMap<String, DeliveryMethod> = {
+        let conn = pool.get().await?;
+        delivery_methods::table
+            .select(delivery_methods::all_columns)
+            .filter(delivery_methods::user_id.eq_any(user_ids))
+            .load::<DeliveryMethod>(&*conn)?
             .into_iter()
-            .map(|(user_id, chapters)| {
-                let mut chapters = chapters.peekable();
-                let group_size = chapters
-                    .peek()
-                    .expect("Theres always one")
-                    .grouping_quantity;
-                let book_id = chapters.peek().expect("Theres always one").book_id;
-                (
-                    user_id,
-                    (
-                        group_size,
-                        book_id,
-                        chapters
-                            .map(|x| Chapter {
-                                author: x.author,
-                                book_id: x.book_id,
-                                created_at: x.created_at,
-                                id: x.id,
-                                metadata: x.metadata,
-                                name: x.name,
-                                published_at: x.published_at,
-                                updated_at: x.updated_at,
-                            })
-                            .collect(),
-                    ),
-                )
-            })
-            .collect();
+            .map(|x| (x.user_id.clone(), x))
+            .collect()
+    };
 
-        let user_to_delivery_method: HashMap<String, DeliveryMethod> = {
-            let conn = pool.get().await?;
-            delivery_methods::table
-                .select(delivery_methods::all_columns)
-                .filter(delivery_methods::user_id.eq_any(user_ids))
-                .load::<DeliveryMethod>(&*conn)?
-                .into_iter()
-                .map(|x| (x.user_id.clone(), x))
-                .collect()
-        };
+    let book_id_to_book: HashMap<Uuid, Book> = {
+        let conn = pool.get().await?;
+        books::table
+            .select(books::all_columns)
+            .filter(books::id.eq_any(book_ids))
+            .load::<Book>(&*conn)?
+            .into_iter()
+            .map(|x| (x.id, x))
+            .collect()
+    };
 
-        let book_id_to_book: HashMap<Uuid, Book> = {
-            let conn = pool.get().await?;
-            books::table
-                .select(books::all_columns)
-                .filter(books::id.eq_any(book_ids))
-                .load::<Book>(&*conn)?
-                .into_iter()
-                .map(|x| (x.id, x))
-                .collect()
-        };
+    let delivery_errors = deliver_new_chapters(
+        user_id_to_book_ids_to_chapters,
+        user_to_delivery_method,
+        book_id_to_book,
+        pool.clone(),
+    )
+    .await;
 
-        for (user_id, (group_size, book_id, mut chapters)) in user_id_to_chapter_id {
-            let delivery_method = user_to_delivery_method.get(&user_id).unwrap();
+    match delivery_errors.len() {
+        0 => Ok(()),
+        _len => Err(anyhow!("Failed to deliver some chapters to users"))
+            .with_context(|| format!("{delivery_errors:#?}")),
+    }
+}
+
+async fn deliver_new_chapters(
+    user_id_to_book_ids_to_chapters: HashMap<String, HashMap<(Uuid, i64), Vec<Chapter>>>,
+    user_to_delivery_method: HashMap<String, DeliveryMethod>,
+    book_id_to_book: HashMap<Uuid, Book>,
+    pool: InstrumentedPgConnectionPool,
+) -> Vec<Result<()>> {
+    let mut errors = Vec::new();
+    for (user_id, book_id_to_chapters) in user_id_to_book_ids_to_chapters {
+        let delivery_method = user_to_delivery_method.get(&user_id).unwrap();
+        for ((book_id, grouping_quantity), chapters) in book_id_to_chapters {
             let book = book_id_to_book.get(&book_id).unwrap();
-            chapters.sort_by(|a, b| a.id.cmp(&b.id));
+
             let chapter_bodies: Vec<ChapterBody> = {
-                let conn = pool.get().await?;
-                chapter_bodies::table
+                let conn = match pool.get().await {
+                    Ok(x) => x,
+                    Err(e) => {
+                        errors.push(Err(e).with_context(|| {
+                            format!(
+                                "Failed to acquire a database connection
+                         while fetching bodies for book {}, chapters: [{}]",
+                                book.name,
+                                chapters.iter().map(|chap| &chap.name).join(", ")
+                            )
+                        }));
+                        continue;
+                    }
+                };
+                match chapter_bodies::table
                     .filter(
                         chapter_bodies::chapter_id
                             .eq_any(chapters.iter().map(|x| x.id).collect_vec()),
                     )
                     .select(chapter_bodies::all_columns)
                     .order(chapter_bodies::chapter_id.asc())
-                    .load(&*conn)?
+                    .load(&*conn)
+                {
+                    Ok(x) => x,
+                    Err(e) => {
+                        errors.push(Err(e).with_context(|| {
+                            format!(
+                                "Failed to fetch bodies for book {}, chapters: [{}]",
+                                book.name,
+                                chapters.iter().map(|chap| &chap.name).join(", ")
+                            )
+                        }));
+                        continue;
+                    }
+                }
             };
 
             let chapters_with_body = chapters
@@ -383,14 +415,67 @@ pub async fn send_notifications_loop(pool: InstrumentedPgConnectionPool) -> Resu
                 .zip(chapter_bodies.iter())
                 .sorted_by_key(|(chap, _body)| chap.published_at)
                 .collect_vec();
-            if chapters_with_body.len() as i64 >= group_size {
-                send_pushover_if_enabled(delivery_method, book, &chapters).await?;
-                send_kindle_if_enabled(delivery_method, book, &chapters_with_body).await?;
-            } else if let Some(pushover_key) = delivery_method.get_pushover_key() {
-                pushover::send_message(pushover_key, &format!("A new chapter of {} has released, but waiting for {} more chapters before kindle delivery.", &book.name, chapters_with_body.len() as i64 - group_size)).await?;
+            if chapters_with_body.len() as i64 >= grouping_quantity {
+                match send_pushover_if_enabled(delivery_method, book, &chapters).await {
+                    Ok(()) => (),
+                    Err(e) => {
+                        errors.push(Err(e).with_context(|| {
+                            format!(
+                                "Failed to pushover notification to user {user_id} for book {}, chapters: [{}]",
+                                book.name,
+                                chapters.iter().map(|chap| &chap.name).join(", ")
+                            )
+                        }));
+                        continue;
+                    }
+                };
+                match send_kindle_if_enabled(delivery_method, book, &chapters_with_body).await {
+                    Ok(()) => (),
+                    Err(e) => {
+                        errors.push(Err(e).with_context(|| {
+                            format!(
+                                "Failed to send kindle emails for user {user_id} for book {}, chapters: [{}]",
+                                book.name,
+                                chapters.iter().map(|chap| &chap.name).join(", ")
+                            )
+                        }));
+                        continue;
+                    }
+                };
+                match update_subscription_last_chapter_id(pool.clone(), &user_id, &chapters).await {
+                    Ok(()) => (),
+                    Err(e) => {
+                        errors.push(Err(e).with_context(|| {
+                            format!(
+                                "Failed to update last_sent_chapter for user {user_id} for book {}, chapters: [{}]",
+                                book.name,
+                                chapters.iter().map(|chap| &chap.name).join(", ")
+                            )
+                        }));
+                        continue;
+                    }
+                };
             }
         }
     }
+    errors
+}
+
+async fn update_subscription_last_chapter_id(
+    pool: InstrumentedPgConnectionPool,
+    user_id_str: &str,
+    chapters: &[Chapter],
+) -> Result<()> {
+    use crate::schema::subscriptions::dsl::*;
+    let conn = pool.get().await?;
+    diesel::update(
+        subscriptions
+            .filter(user_id.eq(user_id_str))
+            .filter(book_id.eq(chapters[0].book_id)),
+    )
+    .set(last_chapter_id.eq(chapters[chapters.len()].id))
+    .execute(&*conn)?;
+    Ok(())
 }
 
 async fn send_pushover_if_enabled(

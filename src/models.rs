@@ -79,7 +79,9 @@ where
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow, Hash, Eq)]
+#[derive(
+    Debug, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow, Hash, Eq, Ord, PartialOrd,
+)]
 #[sql_type = "sql_types::Jsonb"]
 pub enum ChapterKind {
     RoyalRoad {
@@ -155,7 +157,18 @@ pub struct NewChapter {
     pub published_at: DateTime<Utc>,
 }
 
-#[derive(Identifiable, Queryable, QueryableByName, PartialEq, Debug, Associations, Hash, Eq)]
+#[derive(
+    Identifiable,
+    Queryable,
+    QueryableByName,
+    PartialEq,
+    Debug,
+    Associations,
+    Hash,
+    Eq,
+    PartialOrd,
+    Ord,
+)]
 #[belongs_to(Book)]
 #[table_name = "chapters"]
 pub struct Chapter {
@@ -251,4 +264,21 @@ impl From<ChapterBody> for S3Location {
             ..Default::default()
         }
     }
+}
+
+#[derive(PartialEq, Debug, Hash, Eq, QueryableByName)]
+#[table_name = "chapters"]
+pub(crate) struct ChapterWithUser {
+    #[sql_type = "diesel::sql_types::Text"]
+    pub(crate) user_id: String,
+    #[sql_type = "diesel::sql_types::BigInt"]
+    pub(crate) grouping_quantity: i64,
+    pub(crate) id: Uuid,
+    pub(crate) name: String,
+    pub(crate) author: String,
+    pub(crate) created_at: DateTime<Utc>,
+    pub(crate) updated_at: DateTime<Utc>,
+    pub(crate) book_id: Uuid,
+    pub(crate) published_at: DateTime<Utc>,
+    pub(crate) metadata: ChapterKind,
 }
