@@ -275,6 +275,12 @@ pub async fn send_notifications_loop(pool: InstrumentedPgConnectionPool) -> Resu
     }
 }
 
+#[tracing::instrument(
+name = "Delivering any unsent chapters",
+err,
+level = "info"
+skip(pool),
+)]
 async fn send_notifications(pool: InstrumentedPgConnectionPool) -> Result<()> {
     info!("Checking for new unsent chapters.");
 
@@ -500,7 +506,10 @@ async fn send_pushover_if_enabled(
                     pushover_key,
                     &format!(
                         "{x} new chapters of {} by {} has been released: {} through {}",
-                        book.name, book.author, chapters[0].name, chapters[x].name,
+                        book.name,
+                        book.author,
+                        chapters[0].name,
+                        chapters[x - 1].name,
                     ),
                 )
                 .await?
@@ -535,10 +544,12 @@ async fn send_kindle_if_enabled(
     });
     let just_chapters = chapters.iter().map(|(c, _b)| *c).collect_vec();
     let cover_title = match just_chapters.len() {
-        1 => format!("New Chapters of {}: {}", book.name, just_chapters[0].name),
+        1 => format!("{}: {}", book.name, just_chapters[0].name),
         x => format!(
-            "{x} New Chapters of {}: {} through {}",
-            book.name, just_chapters[0].name, just_chapters[x].name
+            "{}: {} through {}",
+            book.name,
+            just_chapters[0].name,
+            just_chapters[x - 1].name
         ),
     };
     let mobi_bytes = calibre::generate_mobi(
@@ -574,7 +585,7 @@ async fn send_kindle(
             mailgun::send_mobi_file(
                 bytes,
                 kindle_email,
-                &format!("{} through {}", chapters[0].name, chapters[x].name),
+                &format!("{} through {}", chapters[0].name, chapters[x - 1].name),
                 &subject,
             )
             .await?;

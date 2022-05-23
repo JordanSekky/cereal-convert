@@ -134,7 +134,10 @@ async fn get_chapter_meta(
     ret
 )]
 fn chapter_title_from_subject(subject: &str) -> Option<&str> {
-    subject.split('"').nth(1)
+    subject
+        .split('"')
+        .nth(1)
+        .map(|x| x.trim_start_matches("The Daily Grind - "))
 }
 
 pub fn try_parse_url(url: &str) -> Result<()> {
