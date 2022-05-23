@@ -9,7 +9,7 @@ use crate::schema::{
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use derive_more::{IsVariant, Unwrap};
+use derive_more::{DebugCustom, IsVariant, Unwrap};
 use diesel::{
     sql_types::{self},
     types::{FromSql, ToSql},
@@ -80,7 +80,16 @@ where
 }
 
 #[derive(
-    Debug, PartialEq, Serialize, Deserialize, AsExpression, FromSqlRow, Hash, Eq, Ord, PartialOrd,
+    DebugCustom,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    Hash,
+    Eq,
+    Ord,
+    PartialOrd,
 )]
 #[sql_type = "sql_types::Jsonb"]
 pub enum ChapterKind {
@@ -96,10 +105,12 @@ pub enum ChapterKind {
     TheWanderingInn {
         url: String,
     },
+    #[debug(fmt = "TheWanderingInnPatreon {}", url)]
     TheWanderingInnPatreon {
         url: String,
         password: Option<String>,
     },
+    #[debug(fmt = "TheDailyGrindPatreon")]
     TheDailyGrindPatreon {
         html: String,
     },
