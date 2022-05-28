@@ -15,6 +15,7 @@ use warp::{Filter, Reply};
 pub struct SubscriptionRequest {
     book_id: Uuid,
     user_id: String,
+    grouping_quantity: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,7 +55,7 @@ fields(
 pub async fn list_subscriptions(
     db_pool: InstrumentedPgConnectionPool,
     body: ListSubscriptionsRequest,
-) -> Result<Vec<Book>> {
+) -> Result<Vec<(i64, Book)>> {
     let conn = db_pool.get().await?;
     let db_result = {
         use crate::diesel::prelude::*;
@@ -65,7 +66,7 @@ pub async fn list_subscriptions(
             .inner_join(books::table.on(books::id.eq(book_id)))
             .load::<(Subscription, Book)>(&*conn)?
             .into_iter()
-            .map(|(_, book)| book)
+            .map(|(sub, book)| (sub.grouping_quantity, book))
             .collect()
     };
     Ok(db_result)
