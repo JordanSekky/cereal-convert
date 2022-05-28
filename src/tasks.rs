@@ -16,6 +16,8 @@ use std::time::Duration;
 use tokio::time::MissedTickBehavior;
 use tracing::error;
 use tracing::info;
+use tracing::info_span;
+use tracing::Instrument;
 use uuid::Uuid;
 
 use crate::clients::calibre;
@@ -366,6 +368,11 @@ async fn send_notifications(pool: InstrumentedPgConnectionPool) -> Result<()> {
     }
 }
 
+#[tracing::instrument(
+name = "Delivering some unsent chapters",
+level = "info"
+skip(pool, user_to_delivery_method),
+)]
 async fn deliver_new_chapters(
     user_id_to_book_ids_to_chapters: HashMap<String, HashMap<(Uuid, i64), Vec<Chapter>>>,
     user_to_delivery_method: HashMap<String, DeliveryMethod>,
@@ -484,6 +491,12 @@ async fn update_subscription_last_chapter_id(
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "Sending pushover notification",
+    level = "info",
+    err,
+    skip(delivery_method)
+)]
 async fn send_pushover_if_enabled(
     delivery_method: &DeliveryMethod,
     book: &Book,
@@ -519,6 +532,12 @@ async fn send_pushover_if_enabled(
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "Sending kindle mobi file notification",
+    level = "info",
+    err,
+    skip(delivery_method)
+)]
 async fn send_kindle_if_enabled(
     delivery_method: &DeliveryMethod,
     book: &Book,
@@ -534,6 +553,7 @@ async fn send_kindle_if_enabled(
             })
             .map(storage::fetch_book),
     )
+    .instrument(info_span!("Fetching chapter bodies from storage."))
     .await
     .into_iter()
     .collect::<Result<Vec<Vec<u8>>>>()?
@@ -566,6 +586,12 @@ async fn send_kindle_if_enabled(
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "Sending kindle mobi file email with mailgun",
+    level = "info",
+    err,
+    skip(bytes, kindle_email)
+)]
 async fn send_kindle(
     kindle_email: &str,
     book: &Book,

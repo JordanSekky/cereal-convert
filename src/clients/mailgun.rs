@@ -1,7 +1,6 @@
 use anyhow::{bail, Error};
 use reqwest::multipart::Part;
 use std::env;
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct Attachment {
@@ -40,10 +39,7 @@ impl Message {
 name = "Sending an email",
 err,
 level = "info"
-skip(message),
-fields(
-    request_id = %Uuid::new_v4(),
-)
+skip(message)
 )]
 pub async fn send_message(message: Message) -> Result<(), Error> {
     let client = reqwest::Client::new();
@@ -82,6 +78,12 @@ pub async fn send_message(message: Message) -> Result<(), Error> {
     Ok(())
 }
 
+#[tracing::instrument(
+name = "Sending a mobi email",
+err,
+level = "info"
+skip(bytes, email),
+)]
 pub async fn send_mobi_file(
     bytes: &[u8],
     email: &str,

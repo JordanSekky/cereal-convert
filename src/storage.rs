@@ -37,6 +37,7 @@ pub async fn store_book(body_bytes: &[u8]) -> Result<S3Location> {
     })
 }
 
+#[tracing::instrument(name = "Fetching chapter body from storage.", level = "info", err)]
 pub async fn fetch_book(location: S3Location) -> Result<Vec<u8>> {
     let s3 = S3Client::new_with(
         HttpClient::new().expect("failed to create request dispatcher"),
