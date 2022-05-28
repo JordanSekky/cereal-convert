@@ -580,7 +580,9 @@ async fn send_kindle(
         x => {
             let subject = format!(
                 "{x} New Chapters of {}: {} through {}",
-                book.name, chapters[0].name, chapters[x].name
+                book.name,
+                chapters[0].name,
+                chapters[x - 1].name
             );
             mailgun::send_mobi_file(
                 bytes,
