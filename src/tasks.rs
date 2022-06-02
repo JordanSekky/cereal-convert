@@ -425,6 +425,7 @@ async fn deliver_new_chapters(
 
             let chapters_with_body = chapters
                 .iter()
+                .sorted_by_key(|chap| chap.id)
                 .zip(chapter_bodies.iter())
                 .sorted_by_key(|(chap, _body)| chap.published_at)
                 .collect_vec();
