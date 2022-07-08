@@ -187,8 +187,8 @@ pub async fn register_kindle_email(
         .do_update()
         .set(&changeset)
         .execute(&*conn)?;
-    let mobi_bytes = calibre::generate_kindle_email_validation_mobi(&code).await?;
-    mailgun::send_mobi_file(
+    let mobi_bytes = calibre::generate_kindle_email_validation_epub(&code).await?;
+    mailgun::send_epub_file(
         mobi_bytes.as_slice(),
         &request.kindle_email,
         "CerealValidation",

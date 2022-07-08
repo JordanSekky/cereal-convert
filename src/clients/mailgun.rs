@@ -79,20 +79,20 @@ pub async fn send_message(message: Message) -> Result<(), Error> {
 }
 
 #[tracing::instrument(
-name = "Sending a mobi email",
+name = "Sending a epub email",
 err,
 level = "info"
 skip(bytes, email),
 )]
-pub async fn send_mobi_file(
+pub async fn send_epub_file(
     bytes: &[u8],
     email: &str,
     title: &str,
     subject: &str,
 ) -> Result<(), Error> {
     let attachment = Attachment {
-        content_type: "application/x-mobipocket-ebook".into(),
-        file_name: format!("{}.mobi", &title),
+        content_type: "application/epub+zip".into(),
+        file_name: format!("{}.epub", &title),
         bytes: Vec::from(bytes),
     };
     let message = Message::new(

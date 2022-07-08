@@ -573,7 +573,7 @@ async fn send_kindle_if_enabled(
             just_chapters[x - 1].name
         ),
     };
-    let mobi_bytes = calibre::generate_mobi(
+    let mobi_bytes = calibre::generate_epub(
         ".html",
         &String::from_utf8(text_bytes)?,
         &cover_title,
@@ -602,7 +602,7 @@ async fn send_kindle(
     match chapters.len() {
         1 => {
             let subject = format!("New Chapter of {}: {}", book.name, chapters[0].name);
-            mailgun::send_mobi_file(bytes, kindle_email, &chapters[0].name, &subject).await?;
+            mailgun::send_epub_file(bytes, kindle_email, &chapters[0].name, &subject).await?;
         }
         x => {
             let subject = format!(
@@ -611,7 +611,7 @@ async fn send_kindle(
                 chapters[0].name,
                 chapters[x - 1].name
             );
-            mailgun::send_mobi_file(
+            mailgun::send_epub_file(
                 bytes,
                 kindle_email,
                 &format!("{} through {}", chapters[0].name, chapters[x - 1].name),

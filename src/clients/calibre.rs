@@ -14,7 +14,7 @@ fields(
     request_id = %Uuid::new_v4(),
 )
 )]
-pub async fn generate_mobi(
+pub async fn generate_epub(
     input_extension: &str,
     body: &str,
     cover_title: &str,
@@ -27,7 +27,7 @@ pub async fn generate_mobi(
         .map(char::from)
         .collect();
     let in_path = format!("/tmp/{}.{}", file_name, input_extension);
-    let out_path = format!("/tmp/{}.mobi", file_name);
+    let out_path = format!("/tmp/{}.epub", file_name);
     fs::write(&in_path, body)?;
     let cover_gen_output = Command::new("calibre-debug")
         .arg("-c")
@@ -73,9 +73,9 @@ pub async fn generate_mobi(
     Ok(bytes)
 }
 
-pub async fn generate_kindle_email_validation_mobi(code: &str) -> Result<Vec<u8>> {
+pub async fn generate_kindle_email_validation_epub(code: &str) -> Result<Vec<u8>> {
     let body = format!("Thank you for using cereal. To validate your kindle email address, please input the following code: {}", code);
     let title = "Cereal Kindle Email Validation Book";
 
-    return generate_mobi("txt", &body, title, title, "Cereal").await;
+    return generate_epub("txt", &body, title, title, "Cereal").await;
 }
