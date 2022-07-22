@@ -29,21 +29,6 @@ pub async fn generate_epub(
     let in_path = format!("/tmp/{}.{}", file_name, input_extension);
     let out_path = format!("/tmp/{}.epub", file_name);
     fs::write(&in_path, body)?;
-    let cover_gen_output = Command::new("calibre-debug")
-        .arg("-c")
-        .arg(format!("from calibre.ebooks.covers import *; open('/tmp/{file_name}-cover.jpg', 'wb').write(create_cover('{}', ['{}']))", cover_title.replace('\'', "\\'").replace('\"', "\\\""), author))
-        .output().await?;
-    info!(
-        stdout = ?String::from_utf8_lossy(&cover_gen_output.stdout),
-        stderr = ?String::from_utf8_lossy(&cover_gen_output.stderr),
-        status_code = ?cover_gen_output.status
-    );
-    if !cover_gen_output.status.success() {
-        bail!(
-            "Calibre cover generation failed with status {:?}",
-            cover_gen_output.status
-        );
-    };
     let output = Command::new("ebook-convert")
         .arg(&in_path)
         .arg(&out_path)
@@ -52,9 +37,9 @@ pub async fn generate_epub(
         .arg("--authors")
         .arg(author)
         .arg("--title")
+        .arg(cover_title)
+        .arg("--series")
         .arg(book_title)
-        .arg(r#"--cover"#)
-        .arg(format!("/tmp/{file_name}-cover.jpg"))
         .arg("--output-profile")
         .arg("kindle_oasis")
         .output()
