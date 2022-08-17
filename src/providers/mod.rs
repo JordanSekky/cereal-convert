@@ -1,3 +1,4 @@
+pub mod apparatus_of_change_patreon;
 pub mod pale;
 pub mod practical_guide;
 pub mod royalroad;

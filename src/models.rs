@@ -1,5 +1,5 @@
 use crate::providers::{
-    pale, practical_guide,
+    apparatus_of_change_patreon, pale, practical_guide,
     royalroad::{self, RoyalRoadBookKind},
     the_daily_grind_patreon, wandering_inn, wandering_inn_patreon,
 };
@@ -40,6 +40,7 @@ pub enum BookKind {
     TheWanderingInn,
     TheWanderingInnPatreon,
     TheDailyGrindPatreon,
+    ApparatusOfChangePatreon,
 }
 
 impl BookKind {
@@ -51,6 +52,7 @@ impl BookKind {
             Self::TheWanderingInn => Ok(wandering_inn::get_book()),
             Self::TheWanderingInnPatreon => Ok(wandering_inn_patreon::get_book()),
             Self::TheDailyGrindPatreon => Ok(the_daily_grind_patreon::get_book()),
+            Self::ApparatusOfChangePatreon => Ok(apparatus_of_change_patreon::get_book()),
         }
     }
 }
@@ -112,6 +114,10 @@ pub enum ChapterKind {
     },
     #[debug(fmt = "TheDailyGrindPatreon")]
     TheDailyGrindPatreon {
+        html: String,
+    },
+    #[debug(fmt = "ApparatusOfChangePatreon")]
+    ApparatusOfChangePatreon {
         html: String,
     },
 }

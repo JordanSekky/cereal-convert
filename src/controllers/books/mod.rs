@@ -3,7 +3,8 @@ use crate::models::{Book, BookKind, NewBook};
 use crate::util::{map_result, InstrumentedPgConnectionPool};
 
 use crate::providers::{
-    pale, practical_guide, royalroad, the_daily_grind_patreon, wandering_inn, wandering_inn_patreon,
+    apparatus_of_change_patreon, pale, practical_guide, royalroad, the_daily_grind_patreon,
+    wandering_inn, wandering_inn_patreon,
 };
 use anyhow::{bail, Result};
 use diesel::{QueryDsl, RunQueryDsl};
@@ -25,6 +26,9 @@ fn get_book_metadata(url: &str) -> Result<BookKind> {
     }
     if let Ok(()) = the_daily_grind_patreon::try_parse_url(url) {
         return Ok(BookKind::TheDailyGrindPatreon);
+    }
+    if let Ok(()) = apparatus_of_change_patreon::try_parse_url(url) {
+        return Ok(BookKind::ApparatusOfChangePatreon);
     }
     if let Ok(()) = wandering_inn_patreon::try_parse_url(url) {
         return Ok(BookKind::TheWanderingInnPatreon);

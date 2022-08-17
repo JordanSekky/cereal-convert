@@ -28,6 +28,7 @@ use crate::models::ChapterKind;
 use crate::models::ChapterWithUser;
 use crate::models::DeliveryMethod;
 use crate::models::NewChapter;
+use crate::providers::apparatus_of_change_patreon;
 use crate::providers::pale;
 use crate::providers::practical_guide;
 use crate::providers::royalroad;
@@ -181,6 +182,9 @@ async fn fetch_chapter_body(chapter: &NewChapter, book: &Book) -> Result<String>
         ChapterKind::TheDailyGrindPatreon { html } => {
             Ok(format!("<h1>{}: {}</h1>{}", book.name, chapter.name, html))
         }
+        ChapterKind::ApparatusOfChangePatreon { html } => {
+            Ok(format!("<h1>{}: {}</h1>{}", book.name, chapter.name, html))
+        }
     }
 }
 
@@ -238,6 +242,9 @@ async fn get_new_chapters(
         BookKind::TheDailyGrindPatreon => the_daily_grind_patreon::get_chapters(&book.id)
             .await
             .with_context(|| "Failed to fetch new daily grind patreon chapters.")?,
+        BookKind::ApparatusOfChangePatreon => apparatus_of_change_patreon::get_chapters(&book.id)
+            .await
+            .with_context(|| "Failed to fetch new apparatus of change patreon chapters.")?,
     };
     if rss_chapters.is_empty() {
         return Ok(rss_chapters);

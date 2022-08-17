@@ -26,14 +26,14 @@ use crate::models::{BookKind, ChapterKind, NewBook, NewChapter};
 
 pub fn get_book() -> NewBook {
     NewBook {
-        name: "The Daily Grind".into(),
+        name: "Apparatus Of Change".into(),
         author: "argusthecat".into(),
         metadata: BookKind::TheDailyGrindPatreon,
     }
 }
 
 #[tracing::instrument(
-    name = "Checking for new patreon daily grind chapters.",
+    name = "Checking for new patreon apparatus of change chapters.",
     ret,
     level = "info"
 )]
@@ -70,7 +70,7 @@ pub async fn get_chapters(book_uuid: &Uuid) -> Result<Vec<NewChapter>> {
 }
 
 #[tracing::instrument(
-    name = "Reading email files for new daily grind patreon chapters.",
+    name = "Reading email files for new apparatus of change patreon chapters.",
     level = "info"
     skip(s3),
     ret
@@ -107,11 +107,11 @@ async fn get_chapter_meta(
     let subject = chapter_email.headers.get_first_value("Subject");
     match &subject {
         Some(x) => {
-            if !x.to_lowercase().contains("daily grind") {
-                bail!("Not a the daily grind Email")
+            if !x.to_lowercase().contains("apparatus") {
+                bail!("Not an apparatus of change Email")
             }
         }
-        None => bail!("Not a the daily grind Email"),
+        None => bail!("Not an apparatus of change Email"),
     }
     let body = chapter_email.subparts.iter().last().map(|x| x.get_body());
     let body = match body {
@@ -132,7 +132,7 @@ async fn get_chapter_meta(
         author: String::from("argusthecat"),
         book_id: *book_id,
         published_at,
-        metadata: ChapterKind::TheDailyGrindPatreon { html: body },
+        metadata: ChapterKind::ApparatusOfChangePatreon { html: body },
     })
 }
 
@@ -145,13 +145,13 @@ fn chapter_title_from_subject(subject: &str) -> Option<&str> {
     subject
         .split('"')
         .nth(1)
-        .map(|x| x.trim_start_matches("The Daily Grind - "))
+        .map(|x| x.trim_start_matches("Apparatus Of Change - "))
 }
 
 pub fn try_parse_url(url: &str) -> Result<()> {
     let request_url = Url::parse(url)?;
     match (request_url.scheme(), request_url.host_str()) {
-        ("patreon", Some("thedailygrind.com")) => Ok(()),
-        _ => Err(anyhow!("Not a patreon daily grind url.")),
+        ("patreon", Some("apparatusofchange.com")) => Ok(()),
+        _ => Err(anyhow!("Not a patreon apparatus of change url.")),
     }
 }
