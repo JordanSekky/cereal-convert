@@ -28,7 +28,7 @@ pub fn get_book() -> NewBook {
     NewBook {
         name: "Apparatus Of Change".into(),
         author: "argusthecat".into(),
-        metadata: BookKind::TheDailyGrindPatreon,
+        metadata: BookKind::ApparatusOfChangePatreon,
     }
 }
 
