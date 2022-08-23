@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use rand::Rng;
 use std::fs;
 use tokio::process::Command;
@@ -43,7 +43,8 @@ pub async fn generate_epub(
         .arg("--output-profile")
         .arg("kindle_oasis")
         .output()
-        .await?;
+        .await
+        .with_context(|| "Failed to spawn ebook-convert. Perhaps calibre is not installed?")?;
     info!(
         stdout = ?String::from_utf8_lossy(&output.stdout),
         stderr = ?String::from_utf8_lossy(&output.stderr),

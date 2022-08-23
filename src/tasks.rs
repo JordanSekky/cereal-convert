@@ -581,7 +581,7 @@ async fn send_kindle_if_enabled(
         ),
     };
     let mobi_bytes = calibre::generate_epub(
-        ".html",
+        "html",
         &String::from_utf8(text_bytes)?,
         &cover_title,
         &book.name,
