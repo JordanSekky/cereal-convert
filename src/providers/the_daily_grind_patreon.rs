@@ -113,10 +113,12 @@ async fn get_chapter_meta(
         }
         None => bail!("Not a the daily grind Email"),
     }
-    let body = chapter_email.subparts.iter().last().map(|x| x.get_body());
-    let body = match body {
-        Some(body) => body?,
-        None => bail!("No html body found."),
+    let singlepart_email_body = chapter_email.get_body();
+    let multipart_email_body = chapter_email.subparts.iter().last().map(|x| x.get_body());
+    let body = match (singlepart_email_body, multipart_email_body) {
+        (Ok(x), _) => x,
+        (Err(_), Some(x)) => x?,
+        (Err(_), None) => bail!("Unable to find parsable email body."),
     };
     let doc = Html::parse_document(&body);
     let body = doc
